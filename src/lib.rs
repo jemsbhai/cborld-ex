@@ -77,5 +77,11 @@ pub mod temporal;
 #[cfg(feature = "std")]
 pub mod codec;
 
-// Planned modules (not yet implemented):
-// pub mod transport;  // MQTT/CoAP serialization
+// ==========================================================================
+// `std` transport module — MQTT/CoAP payload wrappers (§10).
+//
+// Wraps codec encode/decode with transport-specific metadata derivation.
+// Requires `std` because it depends on the codec module.
+// ==========================================================================
+#[cfg(feature = "std")]
+pub mod transport;
