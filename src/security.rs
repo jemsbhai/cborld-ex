@@ -73,6 +73,12 @@ pub enum SecurityError {
     InvalidOperatorId(u8),
     /// precision_mode must be 0–2.
     InvalidPrecisionMode(u8),
+    /// t must be 1–7 (MAX_T).
+    InvalidT(u8),
+    /// Syndrome slices have mismatched lengths.
+    SyndromeLengthMismatch { stored: usize, received: usize },
+    /// Syndrome slices too short (need at least 2 for single-entry localization).
+    SyndromeTooShort(usize),
 }
 
 /// Encode Byzantine metadata to exactly 4 bytes.
@@ -379,6 +385,92 @@ pub fn crc8(data: &[u8]) -> u8 {
         crc = CRC8_TABLE[(crc ^ b) as usize];
     }
     crc
+}
+
+// ---------------------------------------------------------------------------
+// Syndrome Computation & Tamper Localization
+//
+// SYNDROME_LOCALIZATION.md §2.3–§2.4:
+//   S_k = XOR_{i=0}^{n-1} (alpha^{k*i} * h(e_i))  for k = 0..2t-1
+//   where h = CRC-8, alpha = 0x03, operations in GF(2^8)
+//
+// Configurable t (1..=MAX_T): localizes up to t simultaneously tampered entries.
+// Default t=1: 2 syndrome bytes. Max t=7: 14 syndrome bytes.
+// Chain length limited to 255 (GF(2^8) has 255 non-zero elements).
+// ---------------------------------------------------------------------------
+
+/// Maximum localization capability. t=7 → 14 syndrome bytes.
+pub const MAX_T: u8 = 7;
+
+/// Maximum syndrome byte count (2 * MAX_T).
+pub const MAX_SYNDROME_BYTES: usize = 14;
+
+/// Maximum chain length (GF(2^8) non-zero element count).
+pub const MAX_CHAIN_LENGTH: usize = 255;
+
+/// Result of single-entry tamper localization.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalizationResult {
+    /// Syndromes match — no tampering detected by syndromes.
+    /// (Could still be h-collision; chain digest is definitive.)
+    NoChange,
+    /// Exactly one entry tampered at the given index (0-based).
+    SingleTamper { index: u8 },
+    /// Inconsistent syndrome deltas indicate multi-entry tampering.
+    /// Syndromes cannot pinpoint which entries; chain digest confirms detection.
+    MultiTamper,
+}
+
+/// Compute 2t syndrome bytes over a chain of 6-byte entries.
+///
+/// Implements SYNDROME_LOCALIZATION.md §2.3, Definition 4:
+///   S_k = ⊕_{i=0}^{n-1} (α^{ki} ⊗ h(eᵢ))  for k = 0..2t-1
+///
+/// Returns a fixed-size array of MAX_SYNDROME_BYTES (14) bytes.
+/// Only the first 2*t bytes are meaningful; the rest are zero.
+///
+/// # Arguments
+/// * `entries` — Slice of 6-byte encoded provenance entries (raw wire bytes).
+/// * `t` — Localization capability (1..=MAX_T). Produces 2t syndrome bytes.
+///
+/// # Errors
+/// * `InvalidT` if t is 0 or > MAX_T.
+/// * `InsufficientData` if entries.len() > MAX_CHAIN_LENGTH (255).
+pub fn compute_syndromes(
+    entries: &[[u8; 6]],
+    t: u8,
+) -> Result<[u8; MAX_SYNDROME_BYTES], SecurityError> {
+    if t == 0 || t > MAX_T {
+        return Err(SecurityError::InvalidT(t));
+    }
+    let n = entries.len();
+    if n > MAX_CHAIN_LENGTH {
+        return Err(SecurityError::InsufficientData {
+            expected: MAX_CHAIN_LENGTH,
+            got: n,
+        });
+    }
+
+    let mut syndromes = [0u8; MAX_SYNDROME_BYTES];
+    let num_syndromes = 2 * t as usize;
+
+    for (i, entry) in entries.iter().enumerate() {
+        let h = crc8(entry);
+        for k in 0..num_syndromes {
+            // weight = α^{k*i}. Since α^0 = 1, and (k*i) mod 255 handles wrap.
+            // Special case: k*i = 0 → weight = 1 (α^0).
+            let power = (k * i) % 255;
+            let weight = if k == 0 || i == 0 {
+                // α^0 = 1. gf_exp(0) = 1, but we avoid the mod for clarity.
+                1u8
+            } else {
+                GF_EXP[power]
+            };
+            syndromes[k] ^= gf_mul(weight, h);
+        }
+    }
+
+    Ok(syndromes)
 }
 
 // ===========================================================================
@@ -1218,6 +1310,254 @@ mod tests {
             // CRC-8 table:  256 bytes
             // Total: 768 bytes — fits on any microcontroller
             assert_eq!(256 + 256 + 256, 768);
+        }
+    }
+
+    // ===================================================================
+    // 4. Syndrome Computation — 2t bytes
+    // ===================================================================
+
+    mod syndrome {
+        use super::*;
+
+        // ---------------------------------------------------------------
+        // compute_syndromes: validation
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn syndromes_t0_invalid() {
+            let entry = [0u8; 6];
+            let result = compute_syndromes(&[entry], 0);
+            assert_eq!(result, Err(SecurityError::InvalidT(0)));
+        }
+
+        #[test]
+        fn syndromes_t8_invalid() {
+            let entry = [0u8; 6];
+            let result = compute_syndromes(&[entry], 8);
+            assert_eq!(result, Err(SecurityError::InvalidT(8)));
+        }
+
+        #[test]
+        fn syndromes_t7_valid() {
+            let entry = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06];
+            let result = compute_syndromes(&[entry], 7);
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn syndromes_chain_too_long() {
+            // n=256 exceeds GF(2⁸) range (max 255)
+            let entries: [[u8; 6]; 256] = [[0xAA; 6]; 256];
+            let result = compute_syndromes(&entries, 1);
+            assert!(result.is_err());
+        }
+
+        // ---------------------------------------------------------------
+        // compute_syndromes: mathematical correctness
+        //
+        // S_k = XOR_{i=0}^{n-1} (alpha^{k*i} * h(e_i))
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn syndromes_empty_chain_all_zero() {
+            // XOR of empty set is 0 for all syndrome positions
+            let empty: &[[u8; 6]] = &[];
+            let s = compute_syndromes(empty, 1).unwrap();
+            assert_eq!(s[0], 0);
+            assert_eq!(s[1], 0);
+        }
+
+        #[test]
+        fn syndromes_single_entry_t1() {
+            // n=1: S0 = alpha^0 * h(e0) = h(e0)
+            //      S1 = alpha^0 * h(e0) = h(e0)
+            // (because k*i = k*0 = 0 for i=0, so weight = alpha^0 = 1)
+            let entry = [0x50u8, 0xC8, 0x1E, 0x80, 0x00, 0x3C];
+            let h = crc8(&entry);
+            let s = compute_syndromes(&[entry], 1).unwrap();
+            assert_eq!(s[0], h, "S0 = h(e0) for single entry");
+            assert_eq!(s[1], h, "S1 = h(e0) for single entry");
+        }
+
+        #[test]
+        fn syndromes_single_entry_all_k_equal_hash() {
+            // For n=1, ALL S_k = alpha^{k*0} * h(e0) = 1 * h(e0) = h(e0)
+            let entry = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06];
+            let h = crc8(&entry);
+            let s = compute_syndromes(&[entry], MAX_T).unwrap();
+            for k in 0..(2 * MAX_T as usize) {
+                assert_eq!(s[k], h, "S_{k} should equal h for single entry");
+            }
+        }
+
+        #[test]
+        fn syndromes_two_entries_t1_manual() {
+            // n=2, t=1:
+            //   h0 = crc8(e0), h1 = crc8(e1)
+            //   S0 = (alpha^0 * h0) XOR (alpha^0 * h1) = h0 XOR h1
+            //   S1 = (alpha^0 * h0) XOR (alpha^1 * h1) = h0 XOR gf_mul(3, h1)
+            let e0 = [0x00u8, 0xD9, 0x0D, 0x80, 0x00, 0x00];
+            let e1 = [0x50u8, 0xC8, 0x1E, 0x80, 0x00, 0x3C];
+            let h0 = crc8(&e0);
+            let h1 = crc8(&e1);
+            let s = compute_syndromes(&[e0, e1], 1).unwrap();
+            assert_eq!(s[0], h0 ^ h1, "S0 = h0 XOR h1");
+            assert_eq!(s[1], h0 ^ gf_mul(0x03, h1), "S1 = h0 XOR alpha*h1");
+        }
+
+        #[test]
+        fn syndromes_three_entries_s0_is_xor_of_hashes() {
+            // S0 = XOR of all h(e_i) (since alpha^0 = 1 for all terms)
+            let e0 = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06];
+            let e1 = [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE];
+            let e2 = [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C];
+            let s = compute_syndromes(&[e0, e1, e2], 1).unwrap();
+            let expected_s0 = crc8(&e0) ^ crc8(&e1) ^ crc8(&e2);
+            assert_eq!(s[0], expected_s0);
+        }
+
+        #[test]
+        fn syndromes_three_entries_s1_manual() {
+            // S1 = alpha^0*h0 XOR alpha^1*h1 XOR alpha^2*h2
+            //    = h0 XOR gf_mul(3, h1) XOR gf_mul(gf_exp(2), h2)
+            let e0 = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06];
+            let e1 = [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE];
+            let e2 = [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C];
+            let h0 = crc8(&e0);
+            let h1 = crc8(&e1);
+            let h2 = crc8(&e2);
+            let s = compute_syndromes(&[e0, e1, e2], 1).unwrap();
+            let expected_s1 = h0 ^ gf_mul(gf_exp(1), h1) ^ gf_mul(gf_exp(2), h2);
+            assert_eq!(s[1], expected_s1);
+        }
+
+        #[test]
+        fn syndromes_t2_four_entries_manual() {
+            // t=2 → 4 syndrome bytes: S0, S1, S2, S3
+            // S2 = XOR_i alpha^{2i} * h(e_i)
+            // S3 = XOR_i alpha^{3i} * h(e_i)
+            let entries: [[u8; 6]; 4] = [
+                [0x01, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+                [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+            ];
+            let h: [u8; 4] = core::array::from_fn(|i| crc8(&entries[i]));
+            let s = compute_syndromes(&entries, 2).unwrap();
+
+            // S2 = alpha^0*h0 XOR alpha^2*h1 XOR alpha^4*h2 XOR alpha^6*h3
+            let expected_s2 = h[0]
+                ^ gf_mul(gf_exp(2), h[1])
+                ^ gf_mul(gf_exp(4), h[2])
+                ^ gf_mul(gf_exp(6), h[3]);
+            assert_eq!(s[2], expected_s2, "S2 manual check");
+
+            // S3 = alpha^0*h0 XOR alpha^3*h1 XOR alpha^6*h2 XOR alpha^9*h3
+            let expected_s3 = h[0]
+                ^ gf_mul(gf_exp(3), h[1])
+                ^ gf_mul(gf_exp(6), h[2])
+                ^ gf_mul(gf_exp(9), h[3]);
+            assert_eq!(s[3], expected_s3, "S3 manual check");
+        }
+
+        #[test]
+        fn syndromes_deterministic() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let s1 = compute_syndromes(&entries, 1).unwrap();
+            let s2 = compute_syndromes(&entries, 1).unwrap();
+            assert_eq!(s1[0], s2[0]);
+            assert_eq!(s1[1], s2[1]);
+        }
+
+        #[test]
+        fn syndromes_unused_bytes_are_zero() {
+            // For t=1, only s[0] and s[1] are meaningful.
+            // Remaining s[2..14] should be zero-initialized.
+            let entry = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06];
+            let s = compute_syndromes(&[entry], 1).unwrap();
+            for k in 2..MAX_SYNDROME_BYTES {
+                assert_eq!(s[k], 0, "Unused syndrome byte {k} should be 0");
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // Localization roundtrip property:
+        // compute syndromes, tamper one entry, recompute, verify delta
+        // algebra yields correct position.
+        // This validates the FULL pipeline, not just individual functions.
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn syndromes_tamper_roundtrip_position0_of5() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+                [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+                [0x10, 0x20, 0x30, 0x40, 0x50, 0x60],
+            ];
+            let s_orig = compute_syndromes(&entries, 1).unwrap();
+            let mut tampered = entries;
+            tampered[0][0] ^= 0x01; // single-bit flip (guaranteed CRC change)
+            let s_recv = compute_syndromes(&tampered, 1).unwrap();
+
+            // Manual delta computation: j = log_alpha(delta1 / delta0)
+            let delta0 = s_orig[0] ^ s_recv[0];
+            let delta1 = s_orig[1] ^ s_recv[1];
+            assert_ne!(delta0, 0, "CRC must change on bit flip");
+            let alpha_j = gf_mul(delta1, gf_inv(delta0));
+            let j = gf_log(alpha_j);
+            assert_eq!(j, 0, "Manual localization should find position 0");
+        }
+
+        #[test]
+        fn syndromes_tamper_roundtrip_position3_of5() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+                [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+                [0x10, 0x20, 0x30, 0x40, 0x50, 0x60],
+            ];
+            let s_orig = compute_syndromes(&entries, 1).unwrap();
+            let mut tampered = entries;
+            tampered[3][2] ^= 0x40; // flip bit in entry 3
+            let s_recv = compute_syndromes(&tampered, 1).unwrap();
+
+            let delta0 = s_orig[0] ^ s_recv[0];
+            let delta1 = s_orig[1] ^ s_recv[1];
+            assert_ne!(delta0, 0);
+            let alpha_j = gf_mul(delta1, gf_inv(delta0));
+            let j = gf_log(alpha_j);
+            assert_eq!(j, 3, "Manual localization should find position 3");
+        }
+
+        #[test]
+        fn syndromes_localize_each_position_n10() {
+            // Verify delta algebra localizes correctly for ALL 10 positions
+            let entries: [[u8; 6]; 10] = core::array::from_fn(|i| {
+                let i = i as u8;
+                [i.wrapping_mul(17), i.wrapping_mul(31), i.wrapping_mul(47),
+                 i.wrapping_mul(63), i.wrapping_mul(79), i.wrapping_mul(97)]
+            });
+            let s_orig = compute_syndromes(&entries, 1).unwrap();
+
+            for j in 0..10u8 {
+                let mut tampered = entries;
+                tampered[j as usize][1] ^= 0x80; // single-bit flip
+                let s_recv = compute_syndromes(&tampered, 1).unwrap();
+
+                let delta0 = s_orig[0] ^ s_recv[0];
+                let delta1 = s_orig[1] ^ s_recv[1];
+                assert_ne!(delta0, 0, "CRC must change at position {j}");
+                let alpha_j = gf_mul(delta1, gf_inv(delta0));
+                let recovered = gf_log(alpha_j);
+                assert_eq!(recovered, j, "Localization failed at position {j}");
+            }
         }
     }
 }
