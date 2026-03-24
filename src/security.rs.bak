@@ -168,44 +168,12 @@ pub struct ProvenanceEntry {
 ///
 /// Returns `Err` if field values exceed their bit widths.
 pub fn encode_provenance_entry(entry: &ProvenanceEntry) -> Result<[u8; 6], SecurityError> {
-    if entry.origin_tier > 2 {
-        return Err(SecurityError::InvalidOriginTier(entry.origin_tier));
-    }
-    if entry.operator_id > 15 {
-        return Err(SecurityError::InvalidOperatorId(entry.operator_id));
-    }
-    if entry.precision_mode > 2 {
-        return Err(SecurityError::InvalidPrecisionMode(entry.precision_mode));
-    }
-    let byte0 = (entry.origin_tier << 6)
-        | (entry.operator_id << 2)
-        | entry.precision_mode;
-    let offset_be = entry.time_offset.to_be_bytes();
-    Ok([byte0, entry.b_q, entry.d_q, entry.a_q, offset_be[0], offset_be[1]])
+    todo!("Implement encode_provenance_entry")
 }
 
 /// Decode 6 bytes to a provenance entry.
 pub fn decode_provenance_entry(data: &[u8]) -> Result<ProvenanceEntry, SecurityError> {
-    if data.len() < PROVENANCE_ENTRY_SIZE {
-        return Err(SecurityError::InsufficientData {
-            expected: PROVENANCE_ENTRY_SIZE,
-            got: data.len(),
-        });
-    }
-    let byte0 = data[0];
-    let origin_tier = (byte0 >> 6) & 0x03;
-    let operator_id = (byte0 >> 2) & 0x0F;
-    let precision_mode = byte0 & 0x03;
-    let time_offset = u16::from_be_bytes([data[4], data[5]]);
-    Ok(ProvenanceEntry {
-        origin_tier,
-        operator_id,
-        precision_mode,
-        b_q: data[1],
-        d_q: data[2],
-        a_q: data[3],
-        time_offset,
-    })
+    todo!("Implement decode_provenance_entry")
 }
 
 // ===========================================================================
