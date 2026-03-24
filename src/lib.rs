@@ -39,7 +39,7 @@ pub mod bitpack;
 pub mod header;
 pub mod opinion;
 pub mod annotation;
-// pub mod codec;
+pub mod codec;
 pub mod temporal;
 // pub mod security;
 // pub mod transport;

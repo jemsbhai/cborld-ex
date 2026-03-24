@@ -10,11 +10,12 @@
 //! Zero cost when absent.
 
 use crate::header::{
-    self, ComplianceStatus, Header, HeaderError, OperatorId, PrecisionMode,
-    Tier1Header, Tier2Header, Tier3Header,
+    Header, HeaderError, PrecisionMode,
+    encode_header, decode_header, header_size,
 };
 use crate::opinion::{
-    self, OpinionError, QuantizedBinomial,
+    OpinionError, QuantizedBinomial,
+    encode_opinion_bytes, decode_opinion_bytes, opinion_wire_size,
 };
 
 /// CBOR tag number for CBOR-LD-ex annotations (§5.3).
@@ -97,8 +98,8 @@ pub fn encode_annotation(ann: &Annotation) -> Result<([u8; 16], usize), Annotati
     }
 
     let mut buf = [0u8; 16];
-    let header_bytes = header::encode_header(&ann.header);
-    let hsize = header::header_size(&ann.header);
+    let header_bytes = encode_header(&ann.header);
+    let hsize = header_size(&ann.header);
     buf[..hsize].copy_from_slice(&header_bytes[..hsize]);
 
     let mut offset = hsize;
@@ -107,8 +108,8 @@ pub fn encode_annotation(ann: &Annotation) -> Result<([u8; 16], usize), Annotati
         let op = ann.opinion.as_ref().unwrap();
         let prec = precision_value(precision_mode(&ann.header));
         // Wire format: transmit (b̂, d̂, â) only. û is derived by decoder.
-        let op_buf = opinion::encode_opinion_bytes(op.belief, op.disbelief, op.base_rate, prec)?;
-        let op_size = opinion::opinion_wire_size(prec)?;
+        let op_buf = encode_opinion_bytes(op.belief, op.disbelief, op.base_rate, prec)?;
+        let op_size = opinion_wire_size(prec)?;
         buf[offset..offset + op_size].copy_from_slice(&op_buf[..op_size]);
         offset += op_size;
     }
@@ -121,19 +122,19 @@ pub fn encode_annotation(ann: &Annotation) -> Result<([u8; 16], usize), Annotati
 /// Reads the header (dispatching on origin_tier), then reads the
 /// opinion payload if has_opinion is set.
 pub fn decode_annotation(data: &[u8]) -> Result<Annotation, AnnotationError> {
-    let hdr = header::decode_header(data)?;
-    let hsize = header::header_size(&hdr);
+    let hdr = decode_header(data)?;
+    let hsize = header_size(&hdr);
 
     let opinion = if has_opinion(&hdr) {
         let prec = precision_value(precision_mode(&hdr));
-        let op_size = opinion::opinion_wire_size(prec)?;
+        let op_size = opinion_wire_size(prec)?;
         if data.len() < hsize + op_size {
             return Err(AnnotationError::Opinion(OpinionError::InsufficientData {
                 expected: op_size,
                 got: data.len() - hsize,
             }));
         }
-        Some(opinion::decode_opinion_bytes(&data[hsize..hsize + op_size], prec)?)
+        Some(decode_opinion_bytes(&data[hsize..hsize + op_size], prec)?)
     } else {
         None
     };
@@ -144,6 +145,9 @@ pub fn decode_annotation(data: &[u8]) -> Result<Annotation, AnnotationError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::header::{
+        ComplianceStatus, OperatorId, Tier1Header, Tier2Header, Tier3Header,
+    };
 
     // =================================================================
     // Tier 1 annotation encode — header only (no opinion)
@@ -278,7 +282,7 @@ mod tests {
             }),
             opinion: None,
         };
-        let (buf, len) = encode_annotation(&ann).unwrap();
+        let (_buf, len) = encode_annotation(&ann).unwrap();
         // 4 byte header, no opinion
         assert_eq!(len, 4);
     }

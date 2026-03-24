@@ -19,12 +19,9 @@ alloc = []
 # bare no_std: use default-features = false
 
 [dependencies]
-# CBOR support — added in Phase 6 (annotation CBOR tag wrapping)
-# ciborium = { version = "0.2", default-features = false, optional = true }
+ciborium = "0.2"
 
 [dev-dependencies]
-# proptest for property-based testing (Hypothesis equivalent)
-# proptest = "1.4"
 
 [lib]
 name = "cborld_ex"
