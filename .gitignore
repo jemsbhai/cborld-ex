@@ -1,0 +1,19 @@
+# Build artifacts
+/target/
+
+# Cargo lock is committed for libraries per Cargo convention
+# (but we include it since this is also a standalone project)
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Coverage
+/tarpaulin-report.html
+/coverage/

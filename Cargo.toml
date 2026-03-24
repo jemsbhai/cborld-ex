@@ -1,0 +1,36 @@
+[package]
+name = "cborld-ex"
+version = "0.1.0"
+edition = "2021"
+authors = ["Muntaser Syed <jemsbhai@gmail.com>"]
+license = "MIT"
+description = "Compact Binary Linked Data with Semantic Reasoning for Constrained IoT Networks"
+keywords = ["cbor", "linked-data", "iot", "subjective-logic", "json-ld"]
+categories = ["encoding", "embedded", "no-std::no-alloc"]
+repository = "https://github.com/jemsbhai/cborld-ex"
+readme = "README.md"
+rust-version = "1.70"
+
+[features]
+default = ["std"]
+std = ["alloc"]
+alloc = []
+# no_std with alloc: use features = ["alloc"], default-features = false
+# bare no_std: use default-features = false
+
+[dependencies]
+# CBOR support — added in Phase 6 (annotation CBOR tag wrapping)
+# ciborium = { version = "0.2", default-features = false, optional = true }
+
+[dev-dependencies]
+# proptest for property-based testing (Hypothesis equivalent)
+# proptest = "1.4"
+
+[lib]
+name = "cborld_ex"
+path = "src/lib.rs"
+
+# Benchmarks added in later phase
+# [[bench]]
+# name = "encode_decode"
+# harness = false
