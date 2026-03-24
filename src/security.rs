@@ -653,6 +653,142 @@ pub fn decode_provenance_chain(
     })
 }
 
+/// Compute 8-byte chain digest: truncate(SHA-256(data), 64 bits).
+///
+/// The input should be the structural payload produced by
+/// `encode_provenance_chain` (header + entries + syndromes).
+/// Returns the first 8 bytes of the SHA-256 hash.
+///
+/// 64-bit truncation provides 2⁶⁴ second-preimage resistance,
+/// which is sufficient for tamper detection (not authentication).
+#[cfg(feature = "digest")]
+pub fn compute_chain_digest(data: &[u8]) -> [u8; CHAIN_DIGEST_SIZE] {
+    use sha2::{Sha256, Digest};
+    let hash = Sha256::digest(data);
+    let mut digest = [0u8; CHAIN_DIGEST_SIZE];
+    digest.copy_from_slice(&hash[..CHAIN_DIGEST_SIZE]);
+    digest
+}
+
+/// Encode a fully hardened provenance chain with digest.
+///
+/// Wire format:
+///   [4B base_timestamp BE][1B chain_length][6n entries][2t syndromes][8B digest]
+///   Total: 5 + 6n + 2t + 8 bytes.
+///
+/// The digest is truncate(SHA-256(structural_payload), 64 bits),
+/// where structural_payload is everything before the digest.
+///
+/// This is the convenience all-in-one function combining
+/// `encode_provenance_chain` + `compute_chain_digest`.
+#[cfg(all(feature = "alloc", feature = "digest"))]
+pub fn encode_hardened_chain(
+    base_timestamp: u32,
+    entries: &[[u8; 6]],
+    t: u8,
+) -> Result<Vec<u8>, SecurityError> {
+    let mut buf = encode_provenance_chain(base_timestamp, entries, t)?;
+    let digest = compute_chain_digest(&buf);
+    buf.extend_from_slice(&digest);
+    Ok(buf)
+}
+
+/// Verify the chain digest of a hardened provenance chain.
+///
+/// Splits the data into structural payload and trailing 8-byte digest,
+/// recomputes SHA-256 over the structural payload, and compares.
+///
+/// Returns `false` if data is too short or digest doesn't match.
+#[cfg(all(feature = "alloc", feature = "digest"))]
+pub fn verify_chain_digest(data: &[u8]) -> bool {
+    if data.len() < CHAIN_DIGEST_SIZE {
+        return false;
+    }
+    let split = data.len() - CHAIN_DIGEST_SIZE;
+    let expected = compute_chain_digest(&data[..split]);
+    data[split..] == expected
+}
+
+/// Full verification result for a hardened provenance chain.
+///
+/// Combines two orthogonal signals:
+///   - `digest_valid`: SHA-256 detection (was anything modified?)
+///   - `localization`: Syndrome localization (which entry, if any?)
+///
+/// Truth table:
+///   digest_valid=true,  NoChange     → Chain is intact.
+///   digest_valid=false, SingleTamper → Tampered, and entry j is identified.
+///   digest_valid=false, MultiTamper  → Tampered, multiple entries changed.
+///   digest_valid=false, NoChange     → Tampered, but h-collision masks syndromes.
+///                                      (probability ≈1/256 per tampered entry)
+///   digest_valid=true,  SingleTamper → Should not happen (digest covers syndromes).
+#[cfg(all(feature = "alloc", feature = "digest"))]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ChainVerification {
+    /// Whether the chain digest matches (tamper detection).
+    pub digest_valid: bool,
+    /// Syndrome-based tamper localization result.
+    pub localization: LocalizationResult,
+    /// The decoded chain (entries + stored syndromes).
+    pub decoded: DecodedChain,
+}
+
+/// Verify a hardened provenance chain: digest check + syndrome localization.
+///
+/// This is the full verification pipeline for §9 hardened chains.
+/// Expects the wire format produced by `encode_hardened_chain`:
+///   [4B base_timestamp BE][1B chain_length][6n entries][2t syndromes][8B digest]
+///
+/// Steps:
+///   1. Verify chain digest (detection: was anything modified?)
+///   2. Decode structural payload (entries + stored syndromes)
+///   3. Recompute syndromes from decoded entries
+///   4. Compare stored vs recomputed syndromes (localization: which entry?)
+///
+/// Returns `ChainVerification` with both signals and the decoded chain.
+///
+/// # Errors
+/// * `InvalidT` if t is 0 or > MAX_T.
+/// * `InsufficientData` if data is too short.
+#[cfg(all(feature = "alloc", feature = "digest"))]
+pub fn verify_provenance_chain(
+    data: &[u8],
+    t: u8,
+) -> Result<ChainVerification, SecurityError> {
+    if t == 0 || t > MAX_T {
+        return Err(SecurityError::InvalidT(t));
+    }
+    if data.len() < CHAIN_HEADER_SIZE + 2 * t as usize + CHAIN_DIGEST_SIZE {
+        return Err(SecurityError::InsufficientData {
+            expected: CHAIN_HEADER_SIZE + 2 * t as usize + CHAIN_DIGEST_SIZE,
+            got: data.len(),
+        });
+    }
+
+    // 1. Digest check
+    let digest_valid = verify_chain_digest(data);
+
+    // 2. Decode structural payload (everything before the 8-byte digest)
+    let structural_len = data.len() - CHAIN_DIGEST_SIZE;
+    let decoded = decode_provenance_chain(&data[..structural_len], t)?;
+
+    // 3. Recompute syndromes from decoded entries
+    let recomputed = compute_syndromes(&decoded.entries, t)?;
+
+    // 4. Localize using stored vs recomputed
+    let num_syn = 2 * t as usize;
+    let localization = localize_single_tamper(
+        &decoded.syndromes[..num_syn],
+        &recomputed[..num_syn],
+    )?;
+
+    Ok(ChainVerification {
+        digest_valid,
+        localization,
+        decoded,
+    })
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -2116,6 +2252,388 @@ mod tests {
         fn chain_decode_t0_invalid() {
             let result = decode_provenance_chain(&[0; 7], 0);
             assert_eq!(result, Err(SecurityError::InvalidT(0)));
+        }
+    }
+
+    // ===================================================================
+    // 6. Chain Digest & Hardened Chain — digest / alloc+digest gated
+    // ===================================================================
+
+    #[cfg(feature = "digest")]
+    mod digest_tests {
+        use super::*;
+
+        // ---------------------------------------------------------------
+        // compute_chain_digest: properties
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn digest_is_8_bytes() {
+            let data = [0x01u8, 0x02, 0x03, 0x04, 0x05];
+            let d = compute_chain_digest(&data);
+            assert_eq!(d.len(), CHAIN_DIGEST_SIZE);
+            assert_eq!(CHAIN_DIGEST_SIZE, 8);
+        }
+
+        #[test]
+        fn digest_deterministic() {
+            let data = [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE];
+            assert_eq!(compute_chain_digest(&data), compute_chain_digest(&data));
+        }
+
+        #[test]
+        fn digest_different_input_different_output() {
+            let a = [0x01u8; 10];
+            let b = [0x02u8; 10];
+            assert_ne!(compute_chain_digest(&a), compute_chain_digest(&b));
+        }
+
+        #[test]
+        fn digest_single_bit_flip_detected() {
+            let original = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08];
+            let d_orig = compute_chain_digest(&original);
+            for byte_pos in 0..8 {
+                for bit_pos in 0..8u8 {
+                    let mut flipped = original;
+                    flipped[byte_pos] ^= 1 << bit_pos;
+                    assert_ne!(compute_chain_digest(&flipped), d_orig,
+                        "Bit flip at byte {byte_pos} bit {bit_pos} not detected");
+                }
+            }
+        }
+
+        #[test]
+        fn digest_is_truncated_sha256() {
+            // Verify against sha2 crate directly: first 8 bytes of SHA-256
+            use sha2::{Sha256, Digest};
+            let data = b"cborld-ex chain digest test vector";
+            let full_sha = Sha256::digest(data);
+            let d = compute_chain_digest(data);
+            assert_eq!(d, full_sha[..8], "Must be first 8 bytes of SHA-256");
+        }
+
+        #[test]
+        fn digest_empty_input() {
+            // SHA-256 of empty = e3b0c44298fc1c14...
+            // First 8 bytes: e3 b0 c4 42 98 fc 1c 14
+            use sha2::{Sha256, Digest};
+            let full_sha = Sha256::digest(b"");
+            let d = compute_chain_digest(&[]);
+            assert_eq!(d, full_sha[..8]);
+        }
+    }
+
+    #[cfg(all(feature = "alloc", feature = "digest"))]
+    mod hardened_tests {
+        use super::*;
+
+        // ---------------------------------------------------------------
+        // encode_hardened_chain: structure
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn hardened_size_formula() {
+            // Size = 5 + 6n + 2t + 8 (digest)
+            for (n, t) in [(0u8, 1u8), (1, 1), (9, 1), (9, 2), (3, 7)] {
+                let entries = alloc::vec![[0xAA_u8; 6]; n as usize];
+                let data = encode_hardened_chain(0, &entries, t).unwrap();
+                let expected = 5 + 6 * n as usize + 2 * t as usize + CHAIN_DIGEST_SIZE;
+                assert_eq!(data.len(), expected, "Size wrong for n={n}, t={t}");
+            }
+        }
+
+        #[test]
+        fn hardened_structural_prefix_matches_encode() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let ts = 0x12345678u32;
+            let structural = encode_provenance_chain(ts, &entries, 1).unwrap();
+            let hardened = encode_hardened_chain(ts, &entries, 1).unwrap();
+            // First (5 + 12 + 2) = 19 bytes should be identical
+            assert_eq!(&hardened[..structural.len()], &structural[..]);
+            // Remaining 8 bytes are the digest
+            assert_eq!(hardened.len(), structural.len() + CHAIN_DIGEST_SIZE);
+        }
+
+        #[test]
+        fn hardened_digest_covers_structural_payload() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let hardened = encode_hardened_chain(0, &entries, 1).unwrap();
+            let structural_len = hardened.len() - CHAIN_DIGEST_SIZE;
+            let expected_digest = compute_chain_digest(&hardened[..structural_len]);
+            assert_eq!(&hardened[structural_len..], &expected_digest);
+        }
+
+        #[test]
+        fn hardened_roundtrip_decode_structural() {
+            // decode_provenance_chain should work on the hardened format
+            // if we strip the trailing 8-byte digest
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+            ];
+            let ts = 1711234567u32;
+            let hardened = encode_hardened_chain(ts, &entries, 1).unwrap();
+            let structural_len = hardened.len() - CHAIN_DIGEST_SIZE;
+            let decoded = decode_provenance_chain(&hardened[..structural_len], 1).unwrap();
+            assert_eq!(decoded.base_timestamp, ts);
+            assert_eq!(decoded.entries.len(), 3);
+            for i in 0..3 {
+                assert_eq!(decoded.entries[i], entries[i]);
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // verify_chain_digest
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn verify_digest_clean_chain() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let hardened = encode_hardened_chain(0, &entries, 1).unwrap();
+            assert!(verify_chain_digest(&hardened));
+        }
+
+        #[test]
+        fn verify_digest_detects_entry_tamper() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let mut hardened = encode_hardened_chain(0, &entries, 1).unwrap();
+            hardened[6] ^= 0x01; // flip bit in first entry
+            assert!(!verify_chain_digest(&hardened));
+        }
+
+        #[test]
+        fn verify_digest_detects_timestamp_tamper() {
+            let entries = [[0x01u8; 6]];
+            let mut hardened = encode_hardened_chain(1000, &entries, 1).unwrap();
+            hardened[0] ^= 0x80; // flip bit in timestamp
+            assert!(!verify_chain_digest(&hardened));
+        }
+
+        #[test]
+        fn verify_digest_detects_syndrome_tamper() {
+            let entries = [[0x01u8; 6], [0x02u8; 6]];
+            let mut hardened = encode_hardened_chain(0, &entries, 1).unwrap();
+            let syn_pos = 5 + 12; // right after entries
+            hardened[syn_pos] ^= 0xFF; // corrupt syndrome
+            assert!(!verify_chain_digest(&hardened));
+        }
+
+        #[test]
+        fn verify_digest_too_short() {
+            // Less than CHAIN_DIGEST_SIZE bytes total
+            assert!(!verify_chain_digest(&[0x00; 7]));
+        }
+
+        // ---------------------------------------------------------------
+        // encode_hardened_chain: validation
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn hardened_t0_invalid() {
+            assert_eq!(encode_hardened_chain(0, &[], 0), Err(SecurityError::InvalidT(0)));
+        }
+
+        #[test]
+        fn hardened_t8_invalid() {
+            assert_eq!(encode_hardened_chain(0, &[], 8), Err(SecurityError::InvalidT(8)));
+        }
+    }
+
+    // ===================================================================
+    // 7. Full Chain Verification Pipeline — alloc+digest gated
+    // ===================================================================
+
+    #[cfg(all(feature = "alloc", feature = "digest"))]
+    mod verify_tests {
+        use super::*;
+
+        // ---------------------------------------------------------------
+        // verify_provenance_chain: clean chain
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn verify_clean_chain_intact() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+            ];
+            let hardened = encode_hardened_chain(1000, &entries, 1).unwrap();
+            let result = verify_provenance_chain(&hardened, 1).unwrap();
+            assert!(result.digest_valid);
+            assert_eq!(result.localization, LocalizationResult::NoChange);
+            assert_eq!(result.decoded.base_timestamp, 1000);
+            assert_eq!(result.decoded.entries.len(), 3);
+        }
+
+        #[test]
+        fn verify_clean_chain_entries_match() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let hardened = encode_hardened_chain(42, &entries, 1).unwrap();
+            let result = verify_provenance_chain(&hardened, 1).unwrap();
+            assert_eq!(result.decoded.entries[0], entries[0]);
+            assert_eq!(result.decoded.entries[1], entries[1]);
+        }
+
+        // ---------------------------------------------------------------
+        // verify_provenance_chain: single-entry tamper → detected + localized
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn verify_single_tamper_detected_and_localized() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+                [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+                [0x10, 0x20, 0x30, 0x40, 0x50, 0x60],
+            ];
+            let mut hardened = encode_hardened_chain(0, &entries, 1).unwrap();
+            // Tamper entry 2 (byte offset: 5 + 2*6 = 17, flip byte 17)
+            hardened[5 + 2 * 6] ^= 0x01;
+            let result = verify_provenance_chain(&hardened, 1).unwrap();
+            assert!(!result.digest_valid, "Digest must fail");
+            assert_eq!(
+                result.localization,
+                LocalizationResult::SingleTamper { index: 2 },
+                "Syndrome must localize to entry 2"
+            );
+        }
+
+        #[test]
+        fn verify_single_tamper_each_position_n9() {
+            let entries: [[u8; 6]; 9] = core::array::from_fn(|i| {
+                let i = i as u8;
+                [i.wrapping_mul(13), i.wrapping_mul(29), i.wrapping_mul(41),
+                 i.wrapping_mul(59), i.wrapping_mul(71), i.wrapping_mul(83)]
+            });
+            let hardened = encode_hardened_chain(0, &entries, 1).unwrap();
+
+            for j in 0..9u8 {
+                let mut tampered = hardened.clone();
+                // Flip a bit in entry j (entries start at byte 5)
+                tampered[5 + j as usize * 6] ^= 0x04;
+                let result = verify_provenance_chain(&tampered, 1).unwrap();
+                assert!(!result.digest_valid, "Digest must fail for j={j}");
+                assert_eq!(
+                    result.localization,
+                    LocalizationResult::SingleTamper { index: j },
+                    "Must localize to position {j}"
+                );
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // verify_provenance_chain: timestamp tamper → digest fails, syndromes clean
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn verify_timestamp_tamper_digest_fails_syndromes_clean() {
+            // Tampering the timestamp doesn't change entries,
+            // so syndromes still match. Only digest detects it.
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let mut hardened = encode_hardened_chain(1000, &entries, 1).unwrap();
+            hardened[0] ^= 0x80; // flip timestamp bit
+            let result = verify_provenance_chain(&hardened, 1).unwrap();
+            assert!(!result.digest_valid);
+            assert_eq!(result.localization, LocalizationResult::NoChange);
+        }
+
+        // ---------------------------------------------------------------
+        // verify_provenance_chain: syndrome-only tamper → digest fails, syndromes diverge
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn verify_syndrome_tamper_digest_fails() {
+            let entries = [[0x01u8; 6], [0x02u8; 6]];
+            let mut hardened = encode_hardened_chain(0, &entries, 1).unwrap();
+            let syn_pos = 5 + 12; // syndromes start after entries
+            hardened[syn_pos] ^= 0xFF;
+            let result = verify_provenance_chain(&hardened, 1).unwrap();
+            assert!(!result.digest_valid);
+            // Stored syndromes are corrupted, so localization sees a delta
+            // but the result depends on the specific corruption.
+            // What matters: digest caught it.
+            assert_ne!(result.localization, LocalizationResult::NoChange);
+        }
+
+        // ---------------------------------------------------------------
+        // verify_provenance_chain: empty chain
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn verify_empty_chain_clean() {
+            let hardened = encode_hardened_chain(999, &[], 1).unwrap();
+            let result = verify_provenance_chain(&hardened, 1).unwrap();
+            assert!(result.digest_valid);
+            assert_eq!(result.localization, LocalizationResult::NoChange);
+            assert!(result.decoded.entries.is_empty());
+        }
+
+        // ---------------------------------------------------------------
+        // verify_provenance_chain: t=2
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn verify_t2_clean() {
+            let entries: [[u8; 6]; 5] = core::array::from_fn(|i| [i as u8; 6]);
+            let hardened = encode_hardened_chain(0, &entries, 2).unwrap();
+            let result = verify_provenance_chain(&hardened, 2).unwrap();
+            assert!(result.digest_valid);
+            assert_eq!(result.localization, LocalizationResult::NoChange);
+        }
+
+        #[test]
+        fn verify_t2_single_tamper_localized() {
+            let entries: [[u8; 6]; 5] = core::array::from_fn(|i| {
+                [(i as u8).wrapping_mul(7); 6]
+            });
+            let mut hardened = encode_hardened_chain(0, &entries, 2).unwrap();
+            hardened[5 + 3 * 6 + 1] ^= 0x10; // tamper entry 3
+            let result = verify_provenance_chain(&hardened, 2).unwrap();
+            assert!(!result.digest_valid);
+            assert_eq!(
+                result.localization,
+                LocalizationResult::SingleTamper { index: 3 }
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // verify_provenance_chain: validation
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn verify_t0_invalid() {
+            assert_eq!(
+                verify_provenance_chain(&[0; 20], 0),
+                Err(SecurityError::InvalidT(0))
+            );
+        }
+
+        #[test]
+        fn verify_too_short() {
+            // Must have at least CHAIN_HEADER_SIZE + 2t + CHAIN_DIGEST_SIZE
+            let result = verify_provenance_chain(&[0; 5], 1);
+            assert!(result.is_err());
         }
     }
 }
