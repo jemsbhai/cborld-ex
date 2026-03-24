@@ -4,7 +4,10 @@
 //! annotation blocks, and wraps them in CBOR Tag(60000) per §5.3.
 //!
 //! Wire structure:
-//!   [header bytes][opinion bytes if has_opinion][extension bytes if present]
+//!
+//! ```text
+//! [header bytes][opinion bytes][extension bytes]
+//! ```
 //!
 //! Extensions are detected by remaining bytes after header + opinion.
 //! Zero cost when absent.
@@ -67,7 +70,7 @@ impl From<TemporalError> for AnnotationError {
 ///
 /// Corresponds to Definition 6 (Annotation algebraic type) at the wire level.
 ///
-/// Wire structure: `[header bytes][opinion bytes][extension bytes]`
+/// Wire structure: header bytes ‖ opinion bytes ‖ extension bytes
 /// Extensions are only available when the `alloc` feature is enabled.
 /// On bare `no_std`, annotations carry header + opinion only — sufficient
 /// for Tier 1 constrained devices. Edge/cloud devices decode extensions too.

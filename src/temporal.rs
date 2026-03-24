@@ -10,12 +10,15 @@
 //!   - Quantized decay and expiry operators (Axiom 3 preserved)
 //!   - Trigger encoding (expiry, review_due, regulatory_change, withdrawal)
 //!
-//! Wire format (bit-packed, appended after [header][opinion]):
-//!   [1 bit]  has_temporal
-//!   [1 bit]  has_triggers
-//!   IF has_temporal: [2 bits] decay_fn, [8 bits] half_life_encoded
-//!   IF has_triggers: [3 bits] trigger_count, per-trigger data
-//!   Pad to byte boundary with zeros.
+//! Wire format (bit-packed, appended after header+opinion bytes):
+//!
+//! ```text
+//! [1 bit]  has_temporal
+//! [1 bit]  has_triggers
+//! IF has_temporal: [2 bits] decay_fn, [8 bits] half_life_encoded
+//! IF has_triggers: [3 bits] trigger_count, per-trigger data
+//! Pad to byte boundary with zeros.
+//! ```
 
 #[cfg(not(feature = "std"))]
 use alloc::vec::Vec;
@@ -94,7 +97,7 @@ pub struct Trigger {
     pub parameter: u8,
 }
 
-/// Bit-packed extension block appended after [header][opinion].
+/// Bit-packed extension block appended after header+opinion bytes.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ExtensionBlock {
     pub temporal: Option<TemporalBlock>,

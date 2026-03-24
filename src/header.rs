@@ -6,8 +6,13 @@
 //!   - Tier 3 (10): 4-byte + variable extension cloud header
 //!
 //! Bit layout (byte 0, shared across all tiers):
-//!   [compliance_status:2][delegation_flag:1][origin_tier:2]
-//!   [has_opinion:1][precision_mode:2]
+//!
+//! ```text
+//! [cs:2][df:1][ot:2][ho:1][pm:2]
+//! ```
+//!
+//! Where: cs=compliance_status, df=delegation_flag, ot=origin_tier,
+//! ho=has_opinion, pm=precision_mode.
 
 /// 2-bit compliance status (Definition 4).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
