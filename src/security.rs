@@ -542,6 +542,7 @@ pub fn localize_single_tamper(
 // ---------------------------------------------------------------------------
 
 /// Size of the chain header (base_timestamp + chain_length).
+#[cfg(feature = "alloc")]
 const CHAIN_HEADER_SIZE: usize = 5;
 
 /// Size of the chain digest (truncated SHA-256).

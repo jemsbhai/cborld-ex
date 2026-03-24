@@ -297,16 +297,15 @@ mod tests {
 
     #[test]
     fn test_tier1_no_opinion_encode() {
-        let ann = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let ann = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: false,
                 precision_mode: PrecisionMode::Bits8,
             }),
-            opinion: None,
-            extensions: None,
-        };
+            None,
+        );
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 1); // header only
         assert_eq!(buf[0], 0x00); // [00][0][00][0][00]
@@ -319,21 +318,20 @@ mod tests {
     #[test]
     fn test_tier1_with_opinion_8bit_encode() {
         // Formal model example: compliant, 85% belief
-        let ann = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let ann = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
                 precision_mode: PrecisionMode::Bits8,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 217,
                 disbelief: 13,
                 uncertainty: 25,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 1 byte header + 3 bytes opinion = 4 bytes total
         assert_eq!(len, 4);
@@ -349,21 +347,20 @@ mod tests {
 
     #[test]
     fn test_tier1_with_opinion_16bit_encode() {
-        let ann = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let ann = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
                 precision_mode: PrecisionMode::Bits16,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 55705,
                 disbelief: 3277,
                 uncertainty: 6553,
                 base_rate: 32768,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 1 byte header + 6 bytes opinion = 7 bytes
         assert_eq!(len, 7);
@@ -376,8 +373,8 @@ mod tests {
 
     #[test]
     fn test_tier2_with_opinion_encode() {
-        let ann = Annotation {
-            header: Header::Tier2(Tier2Header {
+        let ann = Annotation::new(
+            Header::Tier2(Tier2Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
@@ -389,14 +386,13 @@ mod tests {
                 sub_tier_depth: 0,
                 source_count: 5,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 217,
                 disbelief: 13,
                 uncertainty: 25,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 4 byte header + 3 bytes opinion = 7 bytes
         assert_eq!(len, 7);
@@ -412,8 +408,8 @@ mod tests {
 
     #[test]
     fn test_tier3_no_opinion_encode() {
-        let ann = Annotation {
-            header: Header::Tier3(Tier3Header {
+        let ann = Annotation::new(
+            Header::Tier3(Tier3Header {
                 compliance_status: ComplianceStatus::NonCompliant,
                 delegation_flag: true,
                 has_opinion: false,
@@ -426,9 +422,8 @@ mod tests {
                 has_trust_info: false,
                 sub_tier_depth: 0,
             }),
-            opinion: None,
-            extensions: None,
-        };
+            None,
+        );
         let (_buf, len) = encode_annotation(&ann).unwrap();
         // 4 byte header, no opinion
         assert_eq!(len, 4);
@@ -440,16 +435,15 @@ mod tests {
 
     #[test]
     fn test_tier1_roundtrip_no_opinion() {
-        let original = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let original = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Insufficient,
                 delegation_flag: true,
                 has_opinion: false,
                 precision_mode: PrecisionMode::Bits32,
             }),
-            opinion: None,
-            extensions: None,
-        };
+            None,
+        );
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
         assert_eq!(decoded, original);
@@ -457,21 +451,20 @@ mod tests {
 
     #[test]
     fn test_tier1_roundtrip_with_opinion_8bit() {
-        let original = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let original = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
                 precision_mode: PrecisionMode::Bits8,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 217,
                 disbelief: 13,
                 uncertainty: 25,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
         assert_eq!(decoded, original);
@@ -479,21 +472,20 @@ mod tests {
 
     #[test]
     fn test_tier1_roundtrip_with_opinion_16bit() {
-        let original = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let original = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::NonCompliant,
                 delegation_flag: true,
                 has_opinion: true,
                 precision_mode: PrecisionMode::Bits16,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 55705,
                 disbelief: 3277,
                 uncertainty: 6553,
                 base_rate: 32768,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
         assert_eq!(decoded, original);
@@ -501,8 +493,8 @@ mod tests {
 
     #[test]
     fn test_tier2_roundtrip_with_opinion() {
-        let original = Annotation {
-            header: Header::Tier2(Tier2Header {
+        let original = Annotation::new(
+            Header::Tier2(Tier2Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
@@ -514,14 +506,13 @@ mod tests {
                 sub_tier_depth: 3,
                 source_count: 42,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 200,
                 disbelief: 30,
                 uncertainty: 25,
                 base_rate: 100,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
         assert_eq!(decoded, original);
@@ -529,8 +520,8 @@ mod tests {
 
     #[test]
     fn test_tier3_roundtrip_with_opinion() {
-        let original = Annotation {
-            header: Header::Tier3(Tier3Header {
+        let original = Annotation::new(
+            Header::Tier3(Tier3Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
@@ -543,14 +534,13 @@ mod tests {
                 has_trust_info: true,
                 sub_tier_depth: 9,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 150,
                 disbelief: 50,
                 uncertainty: 55,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
         assert_eq!(decoded, original);
@@ -558,8 +548,8 @@ mod tests {
 
     #[test]
     fn test_tier3_roundtrip_no_opinion() {
-        let original = Annotation {
-            header: Header::Tier3(Tier3Header {
+        let original = Annotation::new(
+            Header::Tier3(Tier3Header {
                 compliance_status: ComplianceStatus::Insufficient,
                 delegation_flag: true,
                 has_opinion: false,
@@ -572,9 +562,8 @@ mod tests {
                 has_trust_info: true,
                 sub_tier_depth: 15,
             }),
-            opinion: None,
-            extensions: None,
-        };
+            None,
+        );
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
         assert_eq!(decoded, original);
@@ -587,16 +576,15 @@ mod tests {
     #[test]
     fn test_encode_missing_opinion_error() {
         // has_opinion=true but opinion is None
-        let ann = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let ann = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
                 precision_mode: PrecisionMode::Bits8,
             }),
-            opinion: None,
-            extensions: None,
-        };
+            None,
+        );
         assert_eq!(
             encode_annotation(&ann),
             Err(AnnotationError::MissingOpinion)
@@ -606,21 +594,20 @@ mod tests {
     #[test]
     fn test_encode_unexpected_opinion_error() {
         // has_opinion=false but opinion is Some
-        let ann = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let ann = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: false,
                 precision_mode: PrecisionMode::Bits8,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 100,
                 disbelief: 50,
                 uncertainty: 105,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         assert_eq!(
             encode_annotation(&ann),
             Err(AnnotationError::UnexpectedOpinion)
@@ -647,41 +634,39 @@ mod tests {
     #[test]
     fn test_annotation_sizes() {
         // Tier 1, no opinion: 1 byte
-        let ann = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let ann = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: false,
                 precision_mode: PrecisionMode::Bits8,
             }),
-            opinion: None,
-            extensions: None,
-        };
+            None,
+        );
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 1);
 
         // Tier 1, 8-bit opinion: 4 bytes
-        let ann = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let ann = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
                 precision_mode: PrecisionMode::Bits8,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 200,
                 disbelief: 30,
                 uncertainty: 25,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 4);
 
         // Tier 2, 8-bit opinion: 7 bytes
-        let ann = Annotation {
-            header: Header::Tier2(Tier2Header {
+        let ann = Annotation::new(
+            Header::Tier2(Tier2Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
@@ -693,20 +678,19 @@ mod tests {
                 sub_tier_depth: 0,
                 source_count: 0,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 200,
                 disbelief: 30,
                 uncertainty: 25,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 7);
 
         // Tier 2, 16-bit opinion: 10 bytes
-        let ann = Annotation {
-            header: Header::Tier2(Tier2Header {
+        let ann = Annotation::new(
+            Header::Tier2(Tier2Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
@@ -718,14 +702,13 @@ mod tests {
                 sub_tier_depth: 0,
                 source_count: 0,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 50000,
                 disbelief: 10000,
                 uncertainty: 5535,
                 base_rate: 32768,
             }),
-            extensions: None,
-        };
+        );
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 10);
     }
@@ -740,21 +723,20 @@ mod tests {
         //   header=Tier1Header(COMPLIANT, False, True, BITS_8),
         //   opinion=(217, 13, 25, 128)))
         // → b'\x04\xd9\x0d\x80'
-        let ann = Annotation {
-            header: Header::Tier1(Tier1Header {
+        let ann = Annotation::new(
+            Header::Tier1(Tier1Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
                 precision_mode: PrecisionMode::Bits8,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 217,
                 disbelief: 13,
                 uncertainty: 25,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(&buf[..len], &[0x04, 0xD9, 0x0D, 0x80]);
     }
@@ -766,8 +748,8 @@ mod tests {
         //     CUMULATIVE_FUSION, 3, 1, False, 0, 5),
         //   opinion=(217, 13, 25, 128)))
         // → b'\x0c\x13\x10\x05\xd9\x0d\x80'
-        let ann = Annotation {
-            header: Header::Tier2(Tier2Header {
+        let ann = Annotation::new(
+            Header::Tier2(Tier2Header {
                 compliance_status: ComplianceStatus::Compliant,
                 delegation_flag: false,
                 has_opinion: true,
@@ -779,14 +761,13 @@ mod tests {
                 sub_tier_depth: 0,
                 source_count: 5,
             }),
-            opinion: Some(QuantizedBinomial {
+            Some(QuantizedBinomial {
                 belief: 217,
                 disbelief: 13,
                 uncertainty: 25,
                 base_rate: 128,
             }),
-            extensions: None,
-        };
+        );
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(&buf[..len], &[0x0C, 0x13, 0x10, 0x05, 0xD9, 0x0D, 0x80]);
     }
@@ -822,16 +803,15 @@ mod tests {
         for &cs in &statuses {
             for &df in &[false, true] {
                 // Without opinion
-                let ann = Annotation {
-                    header: Header::Tier1(Tier1Header {
+                let ann = Annotation::new(
+                    Header::Tier1(Tier1Header {
                         compliance_status: cs,
                         delegation_flag: df,
                         has_opinion: false,
                         precision_mode: PrecisionMode::Bits8,
                     }),
-                    opinion: None,
-                    extensions: None,
-                };
+                    None,
+                );
                 let (buf, len) = encode_annotation(&ann).unwrap();
                 let decoded = decode_annotation(&buf[..len]).unwrap();
                 assert_eq!(decoded, ann);
@@ -843,16 +823,15 @@ mod tests {
                         PrecisionMode::Bits16 => opinions_16bit,
                         _ => unreachable!(),
                     };
-                    let ann = Annotation {
-                        header: Header::Tier1(Tier1Header {
+                    let ann = Annotation::new(
+                        Header::Tier1(Tier1Header {
                             compliance_status: cs,
                             delegation_flag: df,
                             has_opinion: true,
                             precision_mode: pm,
                         }),
-                        opinion: Some(op),
-                        extensions: None,
-                    };
+                        Some(op),
+                    );
                     let (buf, len) = encode_annotation(&ann).unwrap();
                     let decoded = decode_annotation(&buf[..len]).unwrap();
                     assert_eq!(
@@ -873,371 +852,100 @@ mod tests {
     // No framing. No length prefix. No wasted bytes.
     // =================================================================
 
-    use crate::temporal::{
-        ExtensionBlock, TemporalBlock, Trigger, DECAY_EXPONENTIAL, DECAY_LINEAR, DECAY_STEP,
-        TRIGGER_EXPIRY, TRIGGER_REVIEW_DUE, TRIGGER_WITHDRAWAL,
-    };
+    #[cfg(feature = "alloc")]
+    mod alloc_tests {
+        use super::*;
+        use crate::temporal::{
+            ExtensionBlock, TemporalBlock, Trigger, DECAY_EXPONENTIAL, DECAY_LINEAR, DECAY_STEP,
+            TRIGGER_EXPIRY, TRIGGER_REVIEW_DUE, TRIGGER_WITHDRAWAL,
+        };
 
-    // -----------------------------------------------------------------
-    // Property 1: Core prefix invariant
-    // First N bytes of encode_annotation_full output MUST be identical
-    // to encode_annotation output. The full encoder must not alter
-    // the core wire format.
-    // -----------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // Property 1: Core prefix invariant
+        // First N bytes of encode_annotation_full output MUST be identical
+        // to encode_annotation output. The full encoder must not alter
+        // the core wire format.
+        // -----------------------------------------------------------------
 
-    #[test]
-    fn test_full_encode_core_prefix_matches_core_encode() {
-        let ann = Annotation::with_extensions(
-            Header::Tier1(Tier1Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits8,
-            }),
-            Some(QuantizedBinomial {
-                belief: 217,
-                disbelief: 13,
-                uncertainty: 25,
-                base_rate: 128,
-            }),
-            Some(ExtensionBlock {
-                temporal: Some(TemporalBlock {
-                    decay_fn: DECAY_EXPONENTIAL,
-                    half_life_encoded: 120,
+        #[test]
+        fn test_full_encode_core_prefix_matches_core_encode() {
+            let ann = Annotation::with_extensions(
+                Header::Tier1(Tier1Header {
+                    compliance_status: ComplianceStatus::Compliant,
+                    delegation_flag: false,
+                    has_opinion: true,
+                    precision_mode: PrecisionMode::Bits8,
                 }),
-                triggers: None,
-            }),
-        );
-
-        let (core_buf, core_len) = encode_annotation(&ann).unwrap();
-        let full_bytes = encode_annotation_full(&ann).unwrap();
-
-        // First core_len bytes must be identical
-        assert_eq!(
-            &full_bytes[..core_len],
-            &core_buf[..core_len],
-            "Core prefix mismatch: full encoder altered the core wire format"
-        );
-        // Full output must be strictly longer (extensions present)
-        assert!(
-            full_bytes.len() > core_len,
-            "Full output should be longer than core when extensions present"
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // Property 2: No-extensions equivalence
-    // encode_annotation_full with extensions: None produces identical
-    // bytes to encode_annotation.
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn test_full_encode_no_extensions_equals_core() {
-        let ann = Annotation::new(
-            Header::Tier1(Tier1Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits8,
-            }),
-            Some(QuantizedBinomial {
-                belief: 217,
-                disbelief: 13,
-                uncertainty: 25,
-                base_rate: 128,
-            }),
-        );
-
-        let (core_buf, core_len) = encode_annotation(&ann).unwrap();
-        let full_bytes = encode_annotation_full(&ann).unwrap();
-
-        assert_eq!(
-            full_bytes,
-            &core_buf[..core_len],
-            "No-extensions full encode must be byte-identical to core encode"
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // Property 3: Roundtrip with temporal only
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn test_full_roundtrip_temporal_only() {
-        let original = Annotation::with_extensions(
-            Header::Tier1(Tier1Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits8,
-            }),
-            Some(QuantizedBinomial {
-                belief: 217,
-                disbelief: 13,
-                uncertainty: 25,
-                base_rate: 128,
-            }),
-            Some(ExtensionBlock {
-                temporal: Some(TemporalBlock {
-                    decay_fn: DECAY_EXPONENTIAL,
-                    half_life_encoded: 120,
+                Some(QuantizedBinomial {
+                    belief: 217,
+                    disbelief: 13,
+                    uncertainty: 25,
+                    base_rate: 128,
                 }),
-                triggers: None,
-            }),
-        );
-
-        let bytes = encode_annotation_full(&original).unwrap();
-        let decoded = decode_annotation_full(&bytes).unwrap();
-        assert_eq!(decoded, original);
-    }
-
-    // -----------------------------------------------------------------
-    // Property 4: Roundtrip with triggers only
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn test_full_roundtrip_triggers_only() {
-        let original = Annotation::with_extensions(
-            Header::Tier2(Tier2Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits8,
-                operator_id: OperatorId::CumulativeFusion,
-                reasoning_context: 3,
-                context_version: 1,
-                has_multinomial: false,
-                sub_tier_depth: 0,
-                source_count: 5,
-            }),
-            Some(QuantizedBinomial {
-                belief: 200,
-                disbelief: 30,
-                uncertainty: 25,
-                base_rate: 128,
-            }),
-            Some(ExtensionBlock {
-                temporal: None,
-                triggers: Some(vec![
-                    Trigger {
-                        trigger_type: TRIGGER_EXPIRY,
-                        parameter: 200,
-                    },
-                    Trigger {
-                        trigger_type: TRIGGER_WITHDRAWAL,
-                        parameter: 0,
-                    },
-                ]),
-            }),
-        );
-
-        let bytes = encode_annotation_full(&original).unwrap();
-        let decoded = decode_annotation_full(&bytes).unwrap();
-        assert_eq!(decoded, original);
-    }
-
-    // -----------------------------------------------------------------
-    // Property 5: Roundtrip with temporal + triggers combined
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn test_full_roundtrip_temporal_and_triggers() {
-        let original = Annotation::with_extensions(
-            Header::Tier1(Tier1Header {
-                compliance_status: ComplianceStatus::NonCompliant,
-                delegation_flag: true,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits8,
-            }),
-            Some(QuantizedBinomial {
-                belief: 150,
-                disbelief: 50,
-                uncertainty: 55,
-                base_rate: 128,
-            }),
-            Some(ExtensionBlock {
-                temporal: Some(TemporalBlock {
-                    decay_fn: DECAY_STEP,
-                    half_life_encoded: 200,
+                Some(ExtensionBlock {
+                    temporal: Some(TemporalBlock {
+                        decay_fn: DECAY_EXPONENTIAL,
+                        half_life_encoded: 120,
+                    }),
+                    triggers: None,
                 }),
-                triggers: Some(vec![
-                    Trigger {
-                        trigger_type: TRIGGER_EXPIRY,
-                        parameter: 128,
-                    },
-                    Trigger {
-                        trigger_type: TRIGGER_REVIEW_DUE,
-                        parameter: 64,
-                    },
-                ]),
-            }),
-        );
+            );
 
-        let bytes = encode_annotation_full(&original).unwrap();
-        let decoded = decode_annotation_full(&bytes).unwrap();
-        assert_eq!(decoded, original);
-    }
+            let (core_buf, core_len) = encode_annotation(&ann).unwrap();
+            let full_bytes = encode_annotation_full(&ann).unwrap();
 
-    // -----------------------------------------------------------------
-    // Property 6: Backward compatibility
-    // decode_annotation_full on core-only bytes (no extension bytes)
-    // must produce extensions: None.
-    // -----------------------------------------------------------------
+            // First core_len bytes must be identical
+            assert_eq!(
+                &full_bytes[..core_len],
+                &core_buf[..core_len],
+                "Core prefix mismatch: full encoder altered the core wire format"
+            );
+            // Full output must be strictly longer (extensions present)
+            assert!(
+                full_bytes.len() > core_len,
+                "Full output should be longer than core when extensions present"
+            );
+        }
 
-    #[test]
-    fn test_full_decode_core_only_bytes_gives_no_extensions() {
-        let ann = Annotation::new(
-            Header::Tier1(Tier1Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits8,
-            }),
-            Some(QuantizedBinomial {
-                belief: 217,
-                disbelief: 13,
-                uncertainty: 25,
-                base_rate: 128,
-            }),
-        );
+        // -----------------------------------------------------------------
+        // Property 2: No-extensions equivalence
+        // encode_annotation_full with extensions: None produces identical
+        // bytes to encode_annotation.
+        // -----------------------------------------------------------------
 
-        // Encode with core encoder (no extensions on wire)
-        let (core_buf, core_len) = encode_annotation(&ann).unwrap();
-
-        // Decode with full decoder
-        let decoded = decode_annotation_full(&core_buf[..core_len]).unwrap();
-
-        assert_eq!(decoded.header, ann.header);
-        assert_eq!(decoded.opinion, ann.opinion);
-        assert_eq!(
-            decoded.extensions, None,
-            "Decoding core-only bytes must produce extensions: None"
-        );
-    }
-
-    // -----------------------------------------------------------------
-    // Property 7: Exact wire sizes — every bit accounted for
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn test_full_wire_size_tier1_8bit_temporal_only() {
-        // Core: 1 (header) + 3 (opinion) = 4 bytes
-        // Extension: 1(ht) + 1(htr) + 2(decay_fn) + 8(half_life) = 12 bits → 2 bytes
-        // Total: 6 bytes
-        let ann = Annotation::with_extensions(
-            Header::Tier1(Tier1Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits8,
-            }),
-            Some(QuantizedBinomial {
-                belief: 217,
-                disbelief: 13,
-                uncertainty: 25,
-                base_rate: 128,
-            }),
-            Some(ExtensionBlock {
-                temporal: Some(TemporalBlock {
-                    decay_fn: DECAY_EXPONENTIAL,
-                    half_life_encoded: 120,
+        #[test]
+        fn test_full_encode_no_extensions_equals_core() {
+            let ann = Annotation::new(
+                Header::Tier1(Tier1Header {
+                    compliance_status: ComplianceStatus::Compliant,
+                    delegation_flag: false,
+                    has_opinion: true,
+                    precision_mode: PrecisionMode::Bits8,
                 }),
-                triggers: None,
-            }),
-        );
-
-        let bytes = encode_annotation_full(&ann).unwrap();
-        assert_eq!(
-            bytes.len(),
-            6,
-            "Tier1 + 8bit opinion + temporal = 4 core + 2 ext = 6 bytes"
-        );
-    }
-
-    #[test]
-    fn test_full_wire_size_no_opinion_temporal_only() {
-        // Core: 1 (header, no opinion) = 1 byte
-        // Extension: 12 bits → 2 bytes
-        // Total: 3 bytes
-        let ann = Annotation::with_extensions(
-            Header::Tier1(Tier1Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: false,
-                precision_mode: PrecisionMode::Bits8,
-            }),
-            None,
-            Some(ExtensionBlock {
-                temporal: Some(TemporalBlock {
-                    decay_fn: DECAY_LINEAR,
-                    half_life_encoded: 255,
+                Some(QuantizedBinomial {
+                    belief: 217,
+                    disbelief: 13,
+                    uncertainty: 25,
+                    base_rate: 128,
                 }),
-                triggers: None,
-            }),
-        );
+            );
 
-        let bytes = encode_annotation_full(&ann).unwrap();
-        assert_eq!(
-            bytes.len(),
-            3,
-            "Tier1 header-only + temporal = 1 core + 2 ext = 3 bytes"
-        );
-    }
+            let (core_buf, core_len) = encode_annotation(&ann).unwrap();
+            let full_bytes = encode_annotation_full(&ann).unwrap();
 
-    #[test]
-    fn test_full_wire_size_tier1_8bit_temporal_plus_triggers() {
-        // Core: 4 bytes (Tier1 + 8-bit opinion)
-        // Extension:
-        //   1(ht) + 1(htr) + 2(decay) + 8(hl) = 12 bits temporal
-        //   3(count) + [2(type)+8(param)] + [2(type)] = 15 bits triggers
-        //   12 + 15 = 27 bits → 4 bytes (ceil(27/8) = 4, padded with 5 zero bits)
-        // Total: 4 + 4 = 8 bytes
-        let ann = Annotation::with_extensions(
-            Header::Tier1(Tier1Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits8,
-            }),
-            Some(QuantizedBinomial {
-                belief: 217,
-                disbelief: 13,
-                uncertainty: 25,
-                base_rate: 128,
-            }),
-            Some(ExtensionBlock {
-                temporal: Some(TemporalBlock {
-                    decay_fn: DECAY_EXPONENTIAL,
-                    half_life_encoded: 120,
-                }),
-                triggers: Some(vec![
-                    Trigger {
-                        trigger_type: TRIGGER_EXPIRY,
-                        parameter: 200,
-                    },
-                    Trigger {
-                        trigger_type: TRIGGER_WITHDRAWAL,
-                        parameter: 0,
-                    },
-                ]),
-            }),
-        );
+            assert_eq!(
+                full_bytes,
+                &core_buf[..core_len],
+                "No-extensions full encode must be byte-identical to core encode"
+            );
+        }
 
-        let bytes = encode_annotation_full(&ann).unwrap();
-        assert_eq!(
-            bytes.len(),
-            8,
-            "Tier1 + 8bit opinion + temporal + 2 triggers = 4 + 4 = 8 bytes"
-        );
-    }
+        // -----------------------------------------------------------------
+        // Property 3: Roundtrip with temporal only
+        // -----------------------------------------------------------------
 
-    // -----------------------------------------------------------------
-    // Roundtrip across all decay functions
-    // -----------------------------------------------------------------
-
-    #[test]
-    fn test_full_roundtrip_all_decay_fns() {
-        for df in [DECAY_EXPONENTIAL, DECAY_LINEAR, DECAY_STEP] {
+        #[test]
+        fn test_full_roundtrip_temporal_only() {
             let original = Annotation::with_extensions(
                 Header::Tier1(Tier1Header {
                     compliance_status: ComplianceStatus::Compliant,
@@ -1246,15 +954,15 @@ mod tests {
                     precision_mode: PrecisionMode::Bits8,
                 }),
                 Some(QuantizedBinomial {
-                    belief: 200,
-                    disbelief: 30,
+                    belief: 217,
+                    disbelief: 13,
                     uncertainty: 25,
                     base_rate: 128,
                 }),
                 Some(ExtensionBlock {
                     temporal: Some(TemporalBlock {
-                        decay_fn: df,
-                        half_life_encoded: 100,
+                        decay_fn: DECAY_EXPONENTIAL,
+                        half_life_encoded: 120,
                     }),
                     triggers: None,
                 }),
@@ -1262,62 +970,337 @@ mod tests {
 
             let bytes = encode_annotation_full(&original).unwrap();
             let decoded = decode_annotation_full(&bytes).unwrap();
-            assert_eq!(decoded, original, "Full roundtrip failed for decay_fn={df}");
+            assert_eq!(decoded, original);
         }
-    }
 
-    // -----------------------------------------------------------------
-    // Roundtrip: Tier 2 with 16-bit opinion + extensions
-    // Verify extensions work with all header tiers and precisions
-    // -----------------------------------------------------------------
+        // -----------------------------------------------------------------
+        // Property 4: Roundtrip with triggers only
+        // -----------------------------------------------------------------
 
-    #[test]
-    fn test_full_roundtrip_tier2_16bit_with_extensions() {
-        let original = Annotation::with_extensions(
-            Header::Tier2(Tier2Header {
-                compliance_status: ComplianceStatus::Compliant,
-                delegation_flag: false,
-                has_opinion: true,
-                precision_mode: PrecisionMode::Bits16,
-                operator_id: OperatorId::TemporalDecay,
-                reasoning_context: 5,
-                context_version: 2,
-                has_multinomial: false,
-                sub_tier_depth: 0,
-                source_count: 3,
-            }),
-            Some(QuantizedBinomial {
-                belief: 55705,
-                disbelief: 3277,
-                uncertainty: 6553,
-                base_rate: 32768,
-            }),
-            Some(ExtensionBlock {
-                temporal: Some(TemporalBlock {
-                    decay_fn: DECAY_EXPONENTIAL,
-                    half_life_encoded: 120,
+        #[test]
+        fn test_full_roundtrip_triggers_only() {
+            let original = Annotation::with_extensions(
+                Header::Tier2(Tier2Header {
+                    compliance_status: ComplianceStatus::Compliant,
+                    delegation_flag: false,
+                    has_opinion: true,
+                    precision_mode: PrecisionMode::Bits8,
+                    operator_id: OperatorId::CumulativeFusion,
+                    reasoning_context: 3,
+                    context_version: 1,
+                    has_multinomial: false,
+                    sub_tier_depth: 0,
+                    source_count: 5,
                 }),
-                triggers: Some(vec![Trigger {
-                    trigger_type: TRIGGER_REVIEW_DUE,
-                    parameter: 90,
-                }]),
-            }),
-        );
+                Some(QuantizedBinomial {
+                    belief: 200,
+                    disbelief: 30,
+                    uncertainty: 25,
+                    base_rate: 128,
+                }),
+                Some(ExtensionBlock {
+                    temporal: None,
+                    triggers: Some(vec![
+                        Trigger {
+                            trigger_type: TRIGGER_EXPIRY,
+                            parameter: 200,
+                        },
+                        Trigger {
+                            trigger_type: TRIGGER_WITHDRAWAL,
+                            parameter: 0,
+                        },
+                    ]),
+                }),
+            );
 
-        let (core_buf, core_len) = encode_annotation(&original).unwrap();
-        assert_eq!(
-            core_len, 10,
-            "Tier2 + 16-bit opinion = 4 + 6 = 10 bytes core"
-        );
+            let bytes = encode_annotation_full(&original).unwrap();
+            let decoded = decode_annotation_full(&bytes).unwrap();
+            assert_eq!(decoded, original);
+        }
 
-        let full_bytes = encode_annotation_full(&original).unwrap();
-        assert_eq!(
-            &full_bytes[..core_len],
-            &core_buf[..core_len],
-            "Core prefix must be preserved"
-        );
+        // -----------------------------------------------------------------
+        // Property 5: Roundtrip with temporal + triggers combined
+        // -----------------------------------------------------------------
 
-        let decoded = decode_annotation_full(&full_bytes).unwrap();
-        assert_eq!(decoded, original);
+        #[test]
+        fn test_full_roundtrip_temporal_and_triggers() {
+            let original = Annotation::with_extensions(
+                Header::Tier1(Tier1Header {
+                    compliance_status: ComplianceStatus::NonCompliant,
+                    delegation_flag: true,
+                    has_opinion: true,
+                    precision_mode: PrecisionMode::Bits8,
+                }),
+                Some(QuantizedBinomial {
+                    belief: 150,
+                    disbelief: 50,
+                    uncertainty: 55,
+                    base_rate: 128,
+                }),
+                Some(ExtensionBlock {
+                    temporal: Some(TemporalBlock {
+                        decay_fn: DECAY_STEP,
+                        half_life_encoded: 200,
+                    }),
+                    triggers: Some(vec![
+                        Trigger {
+                            trigger_type: TRIGGER_EXPIRY,
+                            parameter: 128,
+                        },
+                        Trigger {
+                            trigger_type: TRIGGER_REVIEW_DUE,
+                            parameter: 64,
+                        },
+                    ]),
+                }),
+            );
+
+            let bytes = encode_annotation_full(&original).unwrap();
+            let decoded = decode_annotation_full(&bytes).unwrap();
+            assert_eq!(decoded, original);
+        }
+
+        // -----------------------------------------------------------------
+        // Property 6: Backward compatibility
+        // decode_annotation_full on core-only bytes (no extension bytes)
+        // must produce extensions: None.
+        // -----------------------------------------------------------------
+
+        #[test]
+        fn test_full_decode_core_only_bytes_gives_no_extensions() {
+            let ann = Annotation::new(
+                Header::Tier1(Tier1Header {
+                    compliance_status: ComplianceStatus::Compliant,
+                    delegation_flag: false,
+                    has_opinion: true,
+                    precision_mode: PrecisionMode::Bits8,
+                }),
+                Some(QuantizedBinomial {
+                    belief: 217,
+                    disbelief: 13,
+                    uncertainty: 25,
+                    base_rate: 128,
+                }),
+            );
+
+            // Encode with core encoder (no extensions on wire)
+            let (core_buf, core_len) = encode_annotation(&ann).unwrap();
+
+            // Decode with full decoder
+            let decoded = decode_annotation_full(&core_buf[..core_len]).unwrap();
+
+            assert_eq!(decoded.header, ann.header);
+            assert_eq!(decoded.opinion, ann.opinion);
+            assert_eq!(
+                decoded.extensions, None,
+                "Decoding core-only bytes must produce extensions: None"
+            );
+        }
+
+        // -----------------------------------------------------------------
+        // Property 7: Exact wire sizes — every bit accounted for
+        // -----------------------------------------------------------------
+
+        #[test]
+        fn test_full_wire_size_tier1_8bit_temporal_only() {
+            // Core: 1 (header) + 3 (opinion) = 4 bytes
+            // Extension: 1(ht) + 1(htr) + 2(decay_fn) + 8(half_life) = 12 bits → 2 bytes
+            // Total: 6 bytes
+            let ann = Annotation::with_extensions(
+                Header::Tier1(Tier1Header {
+                    compliance_status: ComplianceStatus::Compliant,
+                    delegation_flag: false,
+                    has_opinion: true,
+                    precision_mode: PrecisionMode::Bits8,
+                }),
+                Some(QuantizedBinomial {
+                    belief: 217,
+                    disbelief: 13,
+                    uncertainty: 25,
+                    base_rate: 128,
+                }),
+                Some(ExtensionBlock {
+                    temporal: Some(TemporalBlock {
+                        decay_fn: DECAY_EXPONENTIAL,
+                        half_life_encoded: 120,
+                    }),
+                    triggers: None,
+                }),
+            );
+
+            let bytes = encode_annotation_full(&ann).unwrap();
+            assert_eq!(
+                bytes.len(),
+                6,
+                "Tier1 + 8bit opinion + temporal = 4 core + 2 ext = 6 bytes"
+            );
+        }
+
+        #[test]
+        fn test_full_wire_size_no_opinion_temporal_only() {
+            // Core: 1 (header, no opinion) = 1 byte
+            // Extension: 12 bits → 2 bytes
+            // Total: 3 bytes
+            let ann = Annotation::with_extensions(
+                Header::Tier1(Tier1Header {
+                    compliance_status: ComplianceStatus::Compliant,
+                    delegation_flag: false,
+                    has_opinion: false,
+                    precision_mode: PrecisionMode::Bits8,
+                }),
+                None,
+                Some(ExtensionBlock {
+                    temporal: Some(TemporalBlock {
+                        decay_fn: DECAY_LINEAR,
+                        half_life_encoded: 255,
+                    }),
+                    triggers: None,
+                }),
+            );
+
+            let bytes = encode_annotation_full(&ann).unwrap();
+            assert_eq!(
+                bytes.len(),
+                3,
+                "Tier1 header-only + temporal = 1 core + 2 ext = 3 bytes"
+            );
+        }
+
+        #[test]
+        fn test_full_wire_size_tier1_8bit_temporal_plus_triggers() {
+            // Core: 4 bytes (Tier1 + 8-bit opinion)
+            // Extension:
+            //   1(ht) + 1(htr) + 2(decay) + 8(hl) = 12 bits temporal
+            //   3(count) + [2(type)+8(param)] + [2(type)] = 15 bits triggers
+            //   12 + 15 = 27 bits → 4 bytes (ceil(27/8) = 4, padded with 5 zero bits)
+            // Total: 4 + 4 = 8 bytes
+            let ann = Annotation::with_extensions(
+                Header::Tier1(Tier1Header {
+                    compliance_status: ComplianceStatus::Compliant,
+                    delegation_flag: false,
+                    has_opinion: true,
+                    precision_mode: PrecisionMode::Bits8,
+                }),
+                Some(QuantizedBinomial {
+                    belief: 217,
+                    disbelief: 13,
+                    uncertainty: 25,
+                    base_rate: 128,
+                }),
+                Some(ExtensionBlock {
+                    temporal: Some(TemporalBlock {
+                        decay_fn: DECAY_EXPONENTIAL,
+                        half_life_encoded: 120,
+                    }),
+                    triggers: Some(vec![
+                        Trigger {
+                            trigger_type: TRIGGER_EXPIRY,
+                            parameter: 200,
+                        },
+                        Trigger {
+                            trigger_type: TRIGGER_WITHDRAWAL,
+                            parameter: 0,
+                        },
+                    ]),
+                }),
+            );
+
+            let bytes = encode_annotation_full(&ann).unwrap();
+            assert_eq!(
+                bytes.len(),
+                8,
+                "Tier1 + 8bit opinion + temporal + 2 triggers = 4 + 4 = 8 bytes"
+            );
+        }
+
+        // -----------------------------------------------------------------
+        // Roundtrip across all decay functions
+        // -----------------------------------------------------------------
+
+        #[test]
+        fn test_full_roundtrip_all_decay_fns() {
+            for df in [DECAY_EXPONENTIAL, DECAY_LINEAR, DECAY_STEP] {
+                let original = Annotation::with_extensions(
+                    Header::Tier1(Tier1Header {
+                        compliance_status: ComplianceStatus::Compliant,
+                        delegation_flag: false,
+                        has_opinion: true,
+                        precision_mode: PrecisionMode::Bits8,
+                    }),
+                    Some(QuantizedBinomial {
+                        belief: 200,
+                        disbelief: 30,
+                        uncertainty: 25,
+                        base_rate: 128,
+                    }),
+                    Some(ExtensionBlock {
+                        temporal: Some(TemporalBlock {
+                            decay_fn: df,
+                            half_life_encoded: 100,
+                        }),
+                        triggers: None,
+                    }),
+                );
+
+                let bytes = encode_annotation_full(&original).unwrap();
+                let decoded = decode_annotation_full(&bytes).unwrap();
+                assert_eq!(decoded, original, "Full roundtrip failed for decay_fn={df}");
+            }
+        }
+
+        // -----------------------------------------------------------------
+        // Roundtrip: Tier 2 with 16-bit opinion + extensions
+        // Verify extensions work with all header tiers and precisions
+        // -----------------------------------------------------------------
+
+        #[test]
+        fn test_full_roundtrip_tier2_16bit_with_extensions() {
+            let original = Annotation::with_extensions(
+                Header::Tier2(Tier2Header {
+                    compliance_status: ComplianceStatus::Compliant,
+                    delegation_flag: false,
+                    has_opinion: true,
+                    precision_mode: PrecisionMode::Bits16,
+                    operator_id: OperatorId::TemporalDecay,
+                    reasoning_context: 5,
+                    context_version: 2,
+                    has_multinomial: false,
+                    sub_tier_depth: 0,
+                    source_count: 3,
+                }),
+                Some(QuantizedBinomial {
+                    belief: 55705,
+                    disbelief: 3277,
+                    uncertainty: 6553,
+                    base_rate: 32768,
+                }),
+                Some(ExtensionBlock {
+                    temporal: Some(TemporalBlock {
+                        decay_fn: DECAY_EXPONENTIAL,
+                        half_life_encoded: 120,
+                    }),
+                    triggers: Some(vec![Trigger {
+                        trigger_type: TRIGGER_REVIEW_DUE,
+                        parameter: 90,
+                    }]),
+                }),
+            );
+
+            let (core_buf, core_len) = encode_annotation(&original).unwrap();
+            assert_eq!(
+                core_len, 10,
+                "Tier2 + 16-bit opinion = 4 + 6 = 10 bytes core"
+            );
+
+            let full_bytes = encode_annotation_full(&original).unwrap();
+            assert_eq!(
+                &full_bytes[..core_len],
+                &core_buf[..core_len],
+                "Core prefix must be preserved"
+            );
+
+            let decoded = decode_annotation_full(&full_bytes).unwrap();
+            assert_eq!(decoded, original);
+        }
     }
 }
