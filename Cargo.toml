@@ -13,13 +13,26 @@ rust-version = "1.70"
 
 [features]
 default = ["std"]
-std = ["alloc"]
+std = ["alloc", "dep:ciborium"]
 alloc = []
-# no_std with alloc: use features = ["alloc"], default-features = false
-# bare no_std: use default-features = false
+# Feature hierarchy:
+#   std (default) → alloc + ciborium
+#                   Enables: codec module (full CBOR encode/decode pipeline)
+#   alloc         → heap allocation (Vec, String)
+#                   Enables: temporal module (ExtensionBlock with Vec<Trigger>)
+#   bare no_std   → no heap, no allocator
+#                   Enables: bitpack, header, opinion, annotation
+#                   This is the core wire format for constrained Tier 1 devices.
+#
+# Usage:
+#   [dependencies]
+#   cborld-ex = "0.1"                                    # full std (default)
+#   cborld-ex = { version = "0.1", features = ["alloc"], default-features = false }  # no_std + alloc
+#   cborld-ex = { version = "0.1", default-features = false }                        # bare no_std
 
 [dependencies]
-ciborium = "0.2"
+ciborium = { version = "0.2", optional = true }
+libm = "0.2"  # Pure-Rust float math for no_std (log2, powf, round). Tiny, zero deps.
 
 [dev-dependencies]
 

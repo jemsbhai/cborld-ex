@@ -18,6 +18,12 @@ use crate::opinion::{
     encode_opinion_bytes, decode_opinion_bytes, opinion_wire_size,
 };
 
+// When the `alloc` feature is enabled (implied by `std`), annotations
+// can carry temporal extensions (half-life, decay, triggers).
+// This import is only available when temporal.rs is compiled.
+#[cfg(feature = "alloc")]
+use crate::temporal::{ExtensionBlock, TemporalError};
+
 /// CBOR tag number for CBOR-LD-ex annotations (§5.3).
 pub const CBOR_TAG_CBORLD_EX: u64 = 60000;
 
@@ -30,6 +36,9 @@ pub enum AnnotationError {
     MissingOpinion,
     /// has_opinion is false but opinion payload was provided.
     UnexpectedOpinion,
+    /// Temporal extension encoding/decoding error.
+    #[cfg(feature = "alloc")]
+    Temporal(TemporalError),
 }
 
 impl From<HeaderError> for AnnotationError {
@@ -44,14 +53,59 @@ impl From<OpinionError> for AnnotationError {
     }
 }
 
-/// A complete CBOR-LD-ex annotation: header + optional opinion.
+#[cfg(feature = "alloc")]
+impl From<TemporalError> for AnnotationError {
+    fn from(e: TemporalError) -> Self {
+        Self::Temporal(e)
+    }
+}
+
+/// A complete CBOR-LD-ex annotation: header + optional opinion + optional extensions.
 ///
 /// Corresponds to Definition 6 (Annotation algebraic type) at the wire level.
+///
+/// Wire structure: `[header bytes][opinion bytes][extension bytes]`
+/// Extensions are only available when the `alloc` feature is enabled.
+/// On bare `no_std`, annotations carry header + opinion only — sufficient
+/// for Tier 1 constrained devices. Edge/cloud devices decode extensions too.
 #[derive(Debug, Clone, PartialEq)]
 pub struct Annotation {
     pub header: Header,
     pub opinion: Option<QuantizedBinomial>,
-    // Extensions deferred to temporal module (Phase 4)
+    /// Temporal and trigger extensions (§7). Requires `alloc` feature.
+    ///
+    /// When present, encoded as a bit-packed block appended after the
+    /// opinion payload. Decoded by checking for remaining bytes after
+    /// header + opinion.
+    #[cfg(feature = "alloc")]
+    pub extensions: Option<ExtensionBlock>,
+}
+
+impl Annotation {
+    /// Create an annotation without extensions.
+    ///
+    /// Works identically across all feature flag configurations.
+    /// This is the primary constructor for Tier 1 constrained devices.
+    pub fn new(header: Header, opinion: Option<QuantizedBinomial>) -> Self {
+        Self {
+            header,
+            opinion,
+            #[cfg(feature = "alloc")]
+            extensions: None,
+        }
+    }
+
+    /// Create an annotation with temporal/trigger extensions.
+    ///
+    /// Requires the `alloc` feature (or `std`, which implies `alloc`).
+    #[cfg(feature = "alloc")]
+    pub fn with_extensions(
+        header: Header,
+        opinion: Option<QuantizedBinomial>,
+        extensions: Option<ExtensionBlock>,
+    ) -> Self {
+        Self { header, opinion, extensions }
+    }
 }
 
 /// Map PrecisionMode to the integer precision value.
@@ -82,10 +136,14 @@ fn precision_mode(header: &Header) -> PrecisionMode {
     }
 }
 
-/// Encode an annotation to bytes: header + opinion.
+/// Encode the core annotation to bytes: header + opinion.
 ///
-/// Returns the encoded bytes and the number of significant bytes.
-/// The buffer is sized for the maximum annotation (4 header + 12 opinion = 16 bytes).
+/// Returns a fixed 16-byte stack buffer and the number of significant bytes.
+/// Maximum core payload: 4 (Tier 2/3 header) + 12 (32-bit opinion) = 16 bytes.
+/// Zero heap allocation. This is the hot path for constrained Tier 1 devices.
+///
+/// Extensions (temporal, triggers) are encoded separately via
+/// `encode_annotation_full` (requires `alloc` feature).
 pub fn encode_annotation(ann: &Annotation) -> Result<([u8; 16], usize), AnnotationError> {
     let ho = has_opinion(&ann.header);
 
@@ -117,10 +175,11 @@ pub fn encode_annotation(ann: &Annotation) -> Result<([u8; 16], usize), Annotati
     Ok((buf, offset))
 }
 
-/// Decode bytes into an Annotation.
+/// Decode the core annotation from bytes: header + opinion.
 ///
 /// Reads the header (dispatching on origin_tier), then reads the
-/// opinion payload if has_opinion is set.
+/// opinion payload if has_opinion is set. Extensions are NOT decoded
+/// here — use `decode_annotation_full` for that (requires `alloc`).
 pub fn decode_annotation(data: &[u8]) -> Result<Annotation, AnnotationError> {
     let hdr = decode_header(data)?;
     let hsize = header_size(&hdr);
@@ -139,7 +198,7 @@ pub fn decode_annotation(data: &[u8]) -> Result<Annotation, AnnotationError> {
         None
     };
 
-    Ok(Annotation { header: hdr, opinion })
+    Ok(Annotation::new(hdr, opinion))
 }
 
 #[cfg(test)]
@@ -163,6 +222,7 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: None,
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 1); // header only
@@ -189,6 +249,7 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 128,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 1 byte header + 3 bytes opinion = 4 bytes total
@@ -218,6 +279,7 @@ mod tests {
                 uncertainty: 6553,
                 base_rate: 32768,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 1 byte header + 6 bytes opinion = 7 bytes
@@ -250,6 +312,7 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 128,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 4 byte header + 3 bytes opinion = 7 bytes
@@ -281,6 +344,7 @@ mod tests {
                 sub_tier_depth: 0,
             }),
             opinion: None,
+        extensions: None,
         };
         let (_buf, len) = encode_annotation(&ann).unwrap();
         // 4 byte header, no opinion
@@ -301,6 +365,7 @@ mod tests {
                 precision_mode: PrecisionMode::Bits32,
             }),
             opinion: None,
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -322,6 +387,7 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 128,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -343,6 +409,7 @@ mod tests {
                 uncertainty: 6553,
                 base_rate: 32768,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -370,6 +437,7 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 100,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -398,6 +466,7 @@ mod tests {
                 uncertainty: 55,
                 base_rate: 128,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -421,6 +490,7 @@ mod tests {
                 sub_tier_depth: 15,
             }),
             opinion: None,
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -442,6 +512,7 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: None,
+        extensions: None,
         };
         assert_eq!(
             encode_annotation(&ann),
@@ -462,6 +533,7 @@ mod tests {
             opinion: Some(QuantizedBinomial {
                 belief: 100, disbelief: 50, uncertainty: 105, base_rate: 128,
             }),
+        extensions: None,
         };
         assert_eq!(
             encode_annotation(&ann),
@@ -497,6 +569,7 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: None,
+        extensions: None,
         };
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 1);
@@ -512,6 +585,7 @@ mod tests {
             opinion: Some(QuantizedBinomial {
                 belief: 200, disbelief: 30, uncertainty: 25, base_rate: 128,
             }),
+        extensions: None,
         };
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 4);
@@ -533,6 +607,7 @@ mod tests {
             opinion: Some(QuantizedBinomial {
                 belief: 200, disbelief: 30, uncertainty: 25, base_rate: 128,
             }),
+        extensions: None,
         };
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 7);
@@ -554,6 +629,7 @@ mod tests {
             opinion: Some(QuantizedBinomial {
                 belief: 50000, disbelief: 10000, uncertainty: 5535, base_rate: 32768,
             }),
+        extensions: None,
         };
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 10);
@@ -579,6 +655,7 @@ mod tests {
             opinion: Some(QuantizedBinomial {
                 belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(&buf[..len], &[0x04, 0xD9, 0x0D, 0x80]);
@@ -607,6 +684,7 @@ mod tests {
             opinion: Some(QuantizedBinomial {
                 belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
             }),
+        extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(&buf[..len], &[0x0C, 0x13, 0x10, 0x05, 0xD9, 0x0D, 0x80]);
@@ -648,6 +726,7 @@ mod tests {
                         precision_mode: PrecisionMode::Bits8,
                     }),
                     opinion: None,
+                extensions: None,
                 };
                 let (buf, len) = encode_annotation(&ann).unwrap();
                 let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -668,6 +747,7 @@ mod tests {
                             precision_mode: pm,
                         }),
                         opinion: Some(op),
+                    extensions: None,
                     };
                     let (buf, len) = encode_annotation(&ann).unwrap();
                     let decoded = decode_annotation(&buf[..len]).unwrap();

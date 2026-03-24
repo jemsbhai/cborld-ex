@@ -36,6 +36,31 @@ pub enum OpinionError {
 // Internal helpers
 // -------------------------------------------------------------------------
 
+// no_std-compatible float math.
+//
+// In std mode, the compiler may optimize these to hardware intrinsics.
+// In no_std mode, libm provides pure-Rust software implementations.
+// We use libm unconditionally for consistency across targets.
+
+/// Round f64 to nearest integer (ties away from zero).
+/// All callers pass non-negative values in [0, 65535].
+#[inline]
+fn f64_round(x: f64) -> f64 {
+    libm::round(x)
+}
+
+/// Absolute value of f64.
+#[inline]
+fn f64_abs(x: f64) -> f64 {
+    libm::fabs(x)
+}
+
+/// Round f32 to nearest integer (ties away from zero).
+#[inline]
+fn f32_round(x: f32) -> f32 {
+    libm::roundf(x)
+}
+
 fn validate_precision(precision: u8) -> Result<(), OpinionError> {
     match precision {
         8 | 16 | 32 => Ok(()),
@@ -57,7 +82,7 @@ fn validate_binomial(b: f64, d: f64, u: f64, a: f64) -> Result<(), OpinionError>
         return Err(OpinionError::InvalidBaseRate(a));
     }
     let sum = b + d + u;
-    if (sum - 1.0).abs() > 1e-6 {
+    if f64_abs(sum - 1.0) > 1e-6 {
         return Err(OpinionError::SumViolation { sum });
     }
     Ok(())
@@ -70,7 +95,7 @@ fn max_val(precision: u8) -> u16 {
 
 /// Definition 9: Q_n(x) = round(x * (2^n - 1)).
 fn quantize_single(x: f64, mv: u16) -> u16 {
-    (x * mv as f64).round() as u16
+    f64_round(x * mv as f64) as u16
 }
 
 /// Definition 9 inverse: Q_n^{-1}(k) = k / (2^n - 1).
@@ -240,10 +265,10 @@ pub fn decode_opinion_bytes(data: &[u8], precision: u8) -> Result<QuantizedBinom
             // For 32-bit, we treat the u16 fields as raw bit containers
             // This is a simplification — full 32-bit path uses f32 directly
             Ok(QuantizedBinomial {
-                belief: (b * 65535.0).round() as u16,
-                disbelief: (d * 65535.0).round() as u16,
-                uncertainty: (u * 65535.0).round() as u16,
-                base_rate: (a * 65535.0).round() as u16,
+                belief: f32_round(b * 65535.0) as u16,
+                disbelief: f32_round(d * 65535.0) as u16,
+                uncertainty: f32_round(u * 65535.0) as u16,
+                base_rate: f32_round(a * 65535.0) as u16,
             })
         }
         _ => unreachable!(),

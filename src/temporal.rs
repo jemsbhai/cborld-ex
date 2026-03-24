@@ -1,5 +1,8 @@
 //! Temporal extensions for CBOR-LD-ex.
 //!
+//! **Feature gate**: Requires the `alloc` feature (or `std`, which implies `alloc`).
+//! Uses `Vec` for trigger lists in `ExtensionBlock`.
+//!
 //! Implements FORMAL_MODEL.md §7:
 //!   - Bit-packed extension block (has_temporal, has_triggers)
 //!   - Log-scale half-life encoding (8 bits, ~1 second to ~388 days)
@@ -14,7 +17,41 @@
 //!   IF has_triggers: [3 bits] trigger_count, per-trigger data
 //!   Pad to byte boundary with zeros.
 
+#[cfg(not(feature = "std"))]
+use alloc::vec::Vec;
+
 use crate::bitpack::{BitReader, BitWriter};
+
+// =====================================================================
+// no_std float math via libm
+//
+// In std mode, the compiler may optimize libm calls to hardware intrinsics.
+// Using libm unconditionally ensures consistent behavior across all targets.
+// =====================================================================
+
+/// 2^x for f64.
+#[inline]
+fn f64_exp2(x: f64) -> f64 {
+    libm::exp2(x)
+}
+
+/// log₂(x) for f64.
+#[inline]
+fn f64_log2(x: f64) -> f64 {
+    libm::log2(x)
+}
+
+/// Round f64 to nearest integer (ties away from zero).
+#[inline]
+fn f64_round(x: f64) -> f64 {
+    libm::round(x)
+}
+
+/// max(a, b) for f64.
+#[inline]
+fn f64_max(a: f64, b: f64) -> f64 {
+    libm::fmax(a, b)
+}
 
 // =====================================================================
 // Constants
@@ -98,15 +135,15 @@ pub fn encode_half_life(seconds: f64) -> Result<u8, TemporalError> {
     // seconds = 2^(value * MAX_EXPONENT / 255)
     // log2(seconds) = value * MAX_EXPONENT / 255
     // value = log2(seconds) * 255 / MAX_EXPONENT
-    let log2_s = seconds.log2();
-    let value = (log2_s * 255.0 / HALF_LIFE_MAX_EXPONENT).round() as i32;
+    let log2_s = f64_log2(seconds);
+    let value = f64_round(log2_s * 255.0 / HALF_LIFE_MAX_EXPONENT) as i32;
     Ok(value.clamp(0, 255) as u8)
 }
 
 /// Decode 8-bit log-scale value to half-life in seconds.
 pub fn decode_half_life(value: u8) -> f64 {
     let exponent = value as f64 * HALF_LIFE_MAX_EXPONENT / 255.0;
-    2.0f64.powf(exponent)
+    f64_exp2(exponent)
 }
 
 // =====================================================================
@@ -122,8 +159,8 @@ pub fn compute_decay_factor(
     decay_fn: u8, half_life: f64, elapsed: f64,
 ) -> Result<f64, TemporalError> {
     match decay_fn {
-        DECAY_EXPONENTIAL => Ok(2.0f64.powf(-elapsed / half_life)),
-        DECAY_LINEAR => Ok((1.0 - elapsed / (2.0 * half_life)).max(0.0)),
+        DECAY_EXPONENTIAL => Ok(f64_exp2(-elapsed / half_life)),
+        DECAY_LINEAR => Ok(f64_max(1.0 - elapsed / (2.0 * half_life), 0.0)),
         DECAY_STEP => Ok(if elapsed < half_life { 1.0 } else { 0.0 }),
         other => Err(TemporalError::InvalidDecayFn(other)),
     }

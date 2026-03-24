@@ -299,6 +299,7 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 128,
             }),
+        extensions: None,
         }
     }
 
@@ -538,6 +539,7 @@ mod tests {
             opinion: Some(QuantizedBinomial {
                 belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
             }),
+        extensions: None,
         };
         let bytes = encode(&doc, &ann, None).unwrap();
         let (decoded_doc, decoded_ann) = decode(&bytes, None).unwrap();
@@ -563,6 +565,7 @@ mod tests {
                 sub_tier_depth: 0,
             }),
             opinion: None,
+        extensions: None,
         };
         let bytes = encode(&doc, &ann, None).unwrap();
         let (decoded_doc, decoded_ann) = decode(&bytes, None).unwrap();
@@ -583,6 +586,7 @@ mod tests {
             opinion: Some(QuantizedBinomial {
                 belief: 55705, disbelief: 3277, uncertainty: 6553, base_rate: 32768,
             }),
+        extensions: None,
         };
         let bytes = encode(&doc, &ann, None).unwrap();
         let (_, decoded_ann) = decode(&bytes, None).unwrap();
