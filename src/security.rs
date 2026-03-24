@@ -17,6 +17,9 @@
 //! - Batch chain encode/decode (`Vec`): requires `alloc`
 //! - Chain digest (SHA-256): requires `digest` feature
 
+#[cfg(feature = "alloc")]
+use alloc::vec::Vec;
+
 // ---------------------------------------------------------------------------
 // Byzantine Fusion Metadata — 4 bytes (32 bits)
 //
@@ -515,6 +518,139 @@ pub fn localize_single_tamper(
             Ok(LocalizationResult::SingleTamper { index: j })
         }
     }
+}
+
+// ---------------------------------------------------------------------------
+// Provenance Chain Wire Format — alloc-gated
+//
+// SYNDROME_LOCALIZATION.md §4:
+//   [4B base_timestamp BE][1B chain_length][6n entries][2t syndromes]
+//   Total structural payload: 5 + 6n + 2t bytes.
+//
+// Chain digest (8B truncated SHA-256) appended separately by
+// compute_chain_digest (digest-gated) or encode_hardened_chain (alloc+digest).
+// ---------------------------------------------------------------------------
+
+/// Size of the chain header (base_timestamp + chain_length).
+const CHAIN_HEADER_SIZE: usize = 5;
+
+/// Size of the chain digest (truncated SHA-256).
+pub const CHAIN_DIGEST_SIZE: usize = 8;
+
+/// Decoded provenance chain (structural payload, no digest).
+#[cfg(feature = "alloc")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DecodedChain {
+    /// Absolute base timestamp (seconds since epoch).
+    pub base_timestamp: u32,
+    /// Raw 6-byte entries in chain order.
+    pub entries: Vec<[u8; 6]>,
+    /// Syndrome bytes (first 2*t meaningful, rest zero).
+    pub syndromes: [u8; MAX_SYNDROME_BYTES],
+}
+
+/// Encode a provenance chain to its structural wire format.
+///
+/// Wire format (SYNDROME_LOCALIZATION.md §4):
+///   [4B base_timestamp BE][1B chain_length][6n entries][2t syndromes]
+///   Total: 5 + 6n + 2t bytes.
+///
+/// Syndromes are computed internally from the entries.
+/// Does NOT include chain digest — use `compute_chain_digest` or
+/// `encode_hardened_chain` for the full hardened format.
+///
+/// # Errors
+/// * `InvalidT` if t is 0 or > MAX_T.
+/// * `InsufficientData` if entries.len() > MAX_CHAIN_LENGTH (255).
+#[cfg(feature = "alloc")]
+pub fn encode_provenance_chain(
+    base_timestamp: u32,
+    entries: &[[u8; 6]],
+    t: u8,
+) -> Result<Vec<u8>, SecurityError> {
+    if t == 0 || t > MAX_T {
+        return Err(SecurityError::InvalidT(t));
+    }
+    let n = entries.len();
+    if n > MAX_CHAIN_LENGTH {
+        return Err(SecurityError::InsufficientData {
+            expected: MAX_CHAIN_LENGTH,
+            got: n,
+        });
+    }
+
+    let syndromes = compute_syndromes(entries, t)?;
+    let num_syn = 2 * t as usize;
+    let total = CHAIN_HEADER_SIZE + PROVENANCE_ENTRY_SIZE * n + num_syn;
+
+    let mut buf = Vec::with_capacity(total);
+    buf.extend_from_slice(&base_timestamp.to_be_bytes());
+    buf.push(n as u8);
+    for entry in entries {
+        buf.extend_from_slice(entry);
+    }
+    buf.extend_from_slice(&syndromes[..num_syn]);
+
+    Ok(buf)
+}
+
+/// Decode a structural provenance chain from wire bytes.
+///
+/// Expects the format produced by `encode_provenance_chain`:
+///   [4B base_timestamp BE][1B chain_length][6n entries][2t syndromes]
+///
+/// The caller must supply the same `t` used during encoding.
+/// This function does NOT verify syndromes — it reads them as-is.
+/// Use `localize_single_tamper` on the decoded syndromes vs freshly
+/// computed syndromes to detect/localize tampering.
+///
+/// # Errors
+/// * `InvalidT` if t is 0 or > MAX_T.
+/// * `InsufficientData` if data is too short for the declared chain length.
+#[cfg(feature = "alloc")]
+pub fn decode_provenance_chain(
+    data: &[u8],
+    t: u8,
+) -> Result<DecodedChain, SecurityError> {
+    if t == 0 || t > MAX_T {
+        return Err(SecurityError::InvalidT(t));
+    }
+    if data.len() < CHAIN_HEADER_SIZE {
+        return Err(SecurityError::InsufficientData {
+            expected: CHAIN_HEADER_SIZE,
+            got: data.len(),
+        });
+    }
+
+    let base_timestamp = u32::from_be_bytes([data[0], data[1], data[2], data[3]]);
+    let n = data[4] as usize;
+    let num_syn = 2 * t as usize;
+    let expected_len = CHAIN_HEADER_SIZE + PROVENANCE_ENTRY_SIZE * n + num_syn;
+
+    if data.len() < expected_len {
+        return Err(SecurityError::InsufficientData {
+            expected: expected_len,
+            got: data.len(),
+        });
+    }
+
+    let mut entries = Vec::with_capacity(n);
+    let mut offset = CHAIN_HEADER_SIZE;
+    for _ in 0..n {
+        let mut entry = [0u8; 6];
+        entry.copy_from_slice(&data[offset..offset + PROVENANCE_ENTRY_SIZE]);
+        entries.push(entry);
+        offset += PROVENANCE_ENTRY_SIZE;
+    }
+
+    let mut syndromes = [0u8; MAX_SYNDROME_BYTES];
+    syndromes[..num_syn].copy_from_slice(&data[offset..offset + num_syn]);
+
+    Ok(DecodedChain {
+        base_timestamp,
+        entries,
+        syndromes,
+    })
 }
 
 // ===========================================================================
@@ -1773,6 +1909,213 @@ mod tests {
                 localize_single_tamper(&s_orig[..4], &s_recv[..4]).unwrap(),
                 LocalizationResult::SingleTamper { index: 2 }
             );
+        }
+    }
+
+    // ===================================================================
+    // 5. Provenance Chain Wire Format — alloc-gated
+    // ===================================================================
+
+    #[cfg(feature = "alloc")]
+    mod chain {
+        use super::*;
+
+        // ---------------------------------------------------------------
+        // encode_provenance_chain: wire format structure
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn chain_encode_size_n0_t1() {
+            // Empty chain: 5 + 0 + 2 = 7 bytes
+            let data = encode_provenance_chain(1000, &[], 1).unwrap();
+            assert_eq!(data.len(), 7);
+        }
+
+        #[test]
+        fn chain_encode_size_n1_t1() {
+            // Single entry: 5 + 6 + 2 = 13 bytes
+            let entry = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06];
+            let data = encode_provenance_chain(1000, &[entry], 1).unwrap();
+            assert_eq!(data.len(), 13);
+        }
+
+        #[test]
+        fn chain_encode_size_n9_t1() {
+            // Typical IoT pipeline: 5 + 54 + 2 = 61 bytes
+            let entries: [[u8; 6]; 9] = [[0xAA; 6]; 9];
+            let data = encode_provenance_chain(1000, &entries, 1).unwrap();
+            assert_eq!(data.len(), 61);
+        }
+
+        #[test]
+        fn chain_encode_size_n9_t2() {
+            // 5 + 54 + 4 = 63 bytes
+            let entries: [[u8; 6]; 9] = [[0xBB; 6]; 9];
+            let data = encode_provenance_chain(1000, &entries, 2).unwrap();
+            assert_eq!(data.len(), 63);
+        }
+
+        #[test]
+        fn chain_encode_size_formula() {
+            // Verify: size = 5 + 6n + 2t for several (n, t) combos
+            for (n, t) in [(0u8, 1u8), (1, 1), (3, 2), (9, 1), (9, 7), (255, 1)] {
+                let entries = alloc::vec![[0xCC_u8; 6]; n as usize];
+                let data = encode_provenance_chain(0, &entries, t).unwrap();
+                let expected = 5 + 6 * n as usize + 2 * t as usize;
+                assert_eq!(data.len(), expected, "Size wrong for n={n}, t={t}");
+            }
+        }
+
+        #[test]
+        fn chain_encode_base_timestamp_be() {
+            // base_timestamp = 0x12345678 → bytes 0-3: 0x12, 0x34, 0x56, 0x78
+            let data = encode_provenance_chain(0x12345678, &[], 1).unwrap();
+            assert_eq!(&data[..4], &[0x12, 0x34, 0x56, 0x78]);
+        }
+
+        #[test]
+        fn chain_encode_chain_length_byte() {
+            let entries: [[u8; 6]; 3] = [[0x00; 6]; 3];
+            let data = encode_provenance_chain(0, &entries, 1).unwrap();
+            assert_eq!(data[4], 3);
+        }
+
+        #[test]
+        fn chain_encode_entries_in_order() {
+            let e0 = [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06];
+            let e1 = [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE];
+            let data = encode_provenance_chain(0, &[e0, e1], 1).unwrap();
+            // Entries start at byte 5
+            assert_eq!(&data[5..11], &e0);
+            assert_eq!(&data[11..17], &e1);
+        }
+
+        #[test]
+        fn chain_encode_syndromes_appended() {
+            // Syndromes should match independently computed values
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let t: u8 = 1;
+            let data = encode_provenance_chain(0, &entries, t).unwrap();
+            let expected_syndromes = compute_syndromes(&entries, t).unwrap();
+            let syn_start = 5 + 6 * entries.len();
+            assert_eq!(data[syn_start], expected_syndromes[0]);
+            assert_eq!(data[syn_start + 1], expected_syndromes[1]);
+        }
+
+        // ---------------------------------------------------------------
+        // encode_provenance_chain: validation
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn chain_encode_t0_invalid() {
+            let result = encode_provenance_chain(0, &[], 0);
+            assert_eq!(result, Err(SecurityError::InvalidT(0)));
+        }
+
+        #[test]
+        fn chain_encode_t8_invalid() {
+            let result = encode_provenance_chain(0, &[], 8);
+            assert_eq!(result, Err(SecurityError::InvalidT(8)));
+        }
+
+        #[test]
+        fn chain_encode_n256_invalid() {
+            let entries: [[u8; 6]; 256] = [[0x00; 6]; 256];
+            let result = encode_provenance_chain(0, &entries, 1);
+            assert!(result.is_err());
+        }
+
+        // ---------------------------------------------------------------
+        // decode_provenance_chain: roundtrip
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn chain_roundtrip_empty() {
+            let ts = 1711234567u32;
+            let encoded = encode_provenance_chain(ts, &[], 1).unwrap();
+            let decoded = decode_provenance_chain(&encoded, 1).unwrap();
+            assert_eq!(decoded.base_timestamp, ts);
+            assert!(decoded.entries.is_empty());
+        }
+
+        #[test]
+        fn chain_roundtrip_n3_t1() {
+            let ts = 1711234567u32;
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+            ];
+            let encoded = encode_provenance_chain(ts, &entries, 1).unwrap();
+            let decoded = decode_provenance_chain(&encoded, 1).unwrap();
+            assert_eq!(decoded.base_timestamp, ts);
+            assert_eq!(decoded.entries.len(), 3);
+            assert_eq!(decoded.entries[0], entries[0]);
+            assert_eq!(decoded.entries[1], entries[1]);
+            assert_eq!(decoded.entries[2], entries[2]);
+            // Syndromes should match fresh computation
+            let expected_syn = compute_syndromes(&entries, 1).unwrap();
+            assert_eq!(decoded.syndromes[0], expected_syn[0]);
+            assert_eq!(decoded.syndromes[1], expected_syn[1]);
+        }
+
+        #[test]
+        fn chain_roundtrip_n9_t2() {
+            let ts = 0xDEADBEEFu32;
+            let entries: [[u8; 6]; 9] = core::array::from_fn(|i| {
+                let i = i as u8;
+                [i.wrapping_mul(13), i.wrapping_mul(29), i.wrapping_mul(41),
+                 i.wrapping_mul(59), i.wrapping_mul(71), i.wrapping_mul(83)]
+            });
+            let encoded = encode_provenance_chain(ts, &entries, 2).unwrap();
+            let decoded = decode_provenance_chain(&encoded, 2).unwrap();
+            assert_eq!(decoded.base_timestamp, ts);
+            assert_eq!(decoded.entries.len(), 9);
+            for i in 0..9 {
+                assert_eq!(decoded.entries[i], entries[i], "Entry {i} mismatch");
+            }
+            let expected_syn = compute_syndromes(&entries, 2).unwrap();
+            for k in 0..4 {
+                assert_eq!(decoded.syndromes[k], expected_syn[k], "Syndrome {k} mismatch");
+            }
+        }
+
+        // ---------------------------------------------------------------
+        // decode_provenance_chain: error cases
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn chain_decode_too_short_header() {
+            // Need at least 5 bytes for header
+            let result = decode_provenance_chain(&[0x00, 0x01, 0x02], 1);
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn chain_decode_truncated_entries() {
+            // Header says n=2 but data only has 1 entry worth of bytes
+            let mut data = [0u8; 5 + 6 + 2]; // space for 1 entry + syndromes
+            data[4] = 2; // claim n=2
+            let result = decode_provenance_chain(&data, 1);
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn chain_decode_truncated_syndromes() {
+            // Data has entries but not enough syndrome bytes
+            let mut data = [0u8; 5 + 6]; // header + 1 entry, no syndrome bytes
+            data[4] = 1; // n=1
+            let result = decode_provenance_chain(&data, 1);
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn chain_decode_t0_invalid() {
+            let result = decode_provenance_chain(&[0; 7], 0);
+            assert_eq!(result, Err(SecurityError::InvalidT(0)));
         }
     }
 }
