@@ -859,6 +859,8 @@ mod tests {
             ExtensionBlock, TemporalBlock, Trigger, DECAY_EXPONENTIAL, DECAY_LINEAR, DECAY_STEP,
             TRIGGER_EXPIRY, TRIGGER_REVIEW_DUE, TRIGGER_WITHDRAWAL,
         };
+        #[cfg(not(feature = "std"))]
+        use alloc::vec;
 
         // -----------------------------------------------------------------
         // Property 1: Core prefix invariant

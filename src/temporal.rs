@@ -291,6 +291,8 @@ pub fn decode_extensions(data: &[u8]) -> Result<ExtensionBlock, TemporalError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    #[cfg(not(feature = "std"))]
+    use alloc::vec;
 
     const TOL: f64 = 1e-6;
 
