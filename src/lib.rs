@@ -37,7 +37,7 @@ pub mod bitpack;
 // Modules added incrementally as tests are written:
 // pub mod error;
 pub mod header;
-// pub mod opinion;
+pub mod opinion;
 // pub mod annotation;
 // pub mod codec;
 // pub mod temporal;
