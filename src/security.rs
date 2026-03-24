@@ -473,6 +473,50 @@ pub fn compute_syndromes(
     Ok(syndromes)
 }
 
+/// Localize a single tampered entry from stored vs received syndrome slices.
+///
+/// Implements SYNDROME_LOCALIZATION.md §2.4, Theorem 1:
+///   Δ₀ = S₀ ⊕ S₀',  Δ₁ = S₁ ⊕ S₁'
+///   j = log_α(Δ₁ ⊗ Δ₀⁻¹)
+///
+/// Uses only the first two syndrome bytes (S₀, S₁). Slices may be
+/// longer (e.g., from t=2 computation); extra bytes are ignored.
+///
+/// # Errors
+/// * `SyndromeLengthMismatch` if slice lengths differ.
+/// * `SyndromeTooShort` if either slice has fewer than 2 bytes.
+pub fn localize_single_tamper(
+    stored: &[u8],
+    received: &[u8],
+) -> Result<LocalizationResult, SecurityError> {
+    if stored.len() != received.len() {
+        return Err(SecurityError::SyndromeLengthMismatch {
+            stored: stored.len(),
+            received: received.len(),
+        });
+    }
+    if stored.len() < 2 {
+        return Err(SecurityError::SyndromeTooShort(stored.len()));
+    }
+
+    let delta0 = stored[0] ^ received[0];
+    let delta1 = stored[1] ^ received[1];
+
+    match (delta0 != 0, delta1 != 0) {
+        (false, false) => Ok(LocalizationResult::NoChange),
+        // One zero, one not: impossible for single-entry tampering.
+        // α^j is always non-zero in GF(2⁸), so Δ₁ = α^j ⊗ Δ₀
+        // means both must be non-zero or both zero.
+        (false, true) | (true, false) => Ok(LocalizationResult::MultiTamper),
+        (true, true) => {
+            // j = log_α(Δ₁ ⊗ Δ₀⁻¹)
+            let alpha_j = gf_mul(delta1, gf_inv(delta0));
+            let j = gf_log(alpha_j);
+            Ok(LocalizationResult::SingleTamper { index: j })
+        }
+    }
+}
+
 // ===========================================================================
 // Tests
 // ===========================================================================
@@ -1558,6 +1602,177 @@ mod tests {
                 let recovered = gf_log(alpha_j);
                 assert_eq!(recovered, j, "Localization failed at position {j}");
             }
+        }
+
+        // ---------------------------------------------------------------
+        // localize_single_tamper: validation
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn localize_mismatched_lengths() {
+            let result = localize_single_tamper(&[0x00, 0x00], &[0x00]);
+            assert_eq!(
+                result,
+                Err(SecurityError::SyndromeLengthMismatch { stored: 2, received: 1 })
+            );
+        }
+
+        #[test]
+        fn localize_too_short() {
+            // Need at least 2 syndrome bytes (t=1) for single-entry localization
+            let result = localize_single_tamper(&[0x00], &[0x00]);
+            assert_eq!(result, Err(SecurityError::SyndromeTooShort(1)));
+        }
+
+        #[test]
+        fn localize_empty_slices() {
+            let result = localize_single_tamper(&[], &[]);
+            assert_eq!(result, Err(SecurityError::SyndromeTooShort(0)));
+        }
+
+        // ---------------------------------------------------------------
+        // localize_single_tamper: NoChange
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn localize_no_change_zeros() {
+            let s = [0u8, 0u8];
+            assert_eq!(
+                localize_single_tamper(&s, &s).unwrap(),
+                LocalizationResult::NoChange
+            );
+        }
+
+        #[test]
+        fn localize_no_change_nonzero_matching() {
+            let s = [0xAB, 0xCD];
+            assert_eq!(
+                localize_single_tamper(&s, &s).unwrap(),
+                LocalizationResult::NoChange
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // localize_single_tamper: MultiTamper (inconsistent deltas)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn localize_delta0_zero_delta1_nonzero_is_multi() {
+            // delta0=0 but delta1≠0: impossible for single entry, indicates multi
+            let stored   = [0xAA, 0xBB];
+            let received = [0xAA, 0xCC]; // delta0=0, delta1=0xBB^0xCC=0x77
+            assert_eq!(
+                localize_single_tamper(&stored, &received).unwrap(),
+                LocalizationResult::MultiTamper
+            );
+        }
+
+        #[test]
+        fn localize_delta0_nonzero_delta1_zero_is_multi() {
+            // delta0≠0 but delta1=0: would require α^j=0, impossible in GF(2⁸)
+            let stored   = [0xAA, 0xBB];
+            let received = [0xCC, 0xBB]; // delta0=0xAA^0xCC=0x66, delta1=0
+            assert_eq!(
+                localize_single_tamper(&stored, &received).unwrap(),
+                LocalizationResult::MultiTamper
+            );
+        }
+
+        // ---------------------------------------------------------------
+        // localize_single_tamper: SingleTamper (correct index recovery)
+        // ---------------------------------------------------------------
+
+        #[test]
+        fn localize_position0_of5() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+                [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+                [0x10, 0x20, 0x30, 0x40, 0x50, 0x60],
+            ];
+            let s_orig = compute_syndromes(&entries, 1).unwrap();
+            let mut tampered = entries;
+            tampered[0][0] ^= 0x01;
+            let s_recv = compute_syndromes(&tampered, 1).unwrap();
+            assert_eq!(
+                localize_single_tamper(&s_orig[..2], &s_recv[..2]).unwrap(),
+                LocalizationResult::SingleTamper { index: 0 }
+            );
+        }
+
+        #[test]
+        fn localize_position4_of5() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+                [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF],
+                [0x10, 0x20, 0x30, 0x40, 0x50, 0x60],
+            ];
+            let s_orig = compute_syndromes(&entries, 1).unwrap();
+            let mut tampered = entries;
+            tampered[4][3] ^= 0x20;
+            let s_recv = compute_syndromes(&tampered, 1).unwrap();
+            assert_eq!(
+                localize_single_tamper(&s_orig[..2], &s_recv[..2]).unwrap(),
+                LocalizationResult::SingleTamper { index: 4 }
+            );
+        }
+
+        #[test]
+        fn localize_all_positions_n9() {
+            // Typical IoT pipeline: 8 sensors + 1 fusion = 9 entries
+            let entries: [[u8; 6]; 9] = core::array::from_fn(|i| {
+                let i = i as u8;
+                [i.wrapping_mul(13), i.wrapping_mul(29), i.wrapping_mul(41),
+                 i.wrapping_mul(59), i.wrapping_mul(71), i.wrapping_mul(83)]
+            });
+            let s_orig = compute_syndromes(&entries, 1).unwrap();
+
+            for j in 0..9u8 {
+                let mut tampered = entries;
+                tampered[j as usize][0] ^= 0x04;
+                let s_recv = compute_syndromes(&tampered, 1).unwrap();
+                assert_eq!(
+                    localize_single_tamper(&s_orig[..2], &s_recv[..2]).unwrap(),
+                    LocalizationResult::SingleTamper { index: j },
+                    "Failed to localize position {j}"
+                );
+            }
+        }
+
+        #[test]
+        fn localize_untampered_chain_no_change() {
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+            ];
+            let s = compute_syndromes(&entries, 1).unwrap();
+            assert_eq!(
+                localize_single_tamper(&s[..2], &s[..2]).unwrap(),
+                LocalizationResult::NoChange
+            );
+        }
+
+        #[test]
+        fn localize_works_with_longer_syndrome_slices() {
+            // If caller passes t=2 (4 bytes), localize_single_tamper
+            // uses only the first 2 (S0, S1). Should still work.
+            let entries = [
+                [0x01u8, 0x02, 0x03, 0x04, 0x05, 0x06],
+                [0xDE, 0xAD, 0xBE, 0xEF, 0xCA, 0xFE],
+                [0x50, 0xC8, 0x1E, 0x80, 0x00, 0x3C],
+            ];
+            let s_orig = compute_syndromes(&entries, 2).unwrap();
+            let mut tampered = entries;
+            tampered[2][5] ^= 0x10;
+            let s_recv = compute_syndromes(&tampered, 2).unwrap();
+            // Pass all 4 bytes — function should use first 2
+            assert_eq!(
+                localize_single_tamper(&s_orig[..4], &s_recv[..4]).unwrap(),
+                LocalizationResult::SingleTamper { index: 2 }
+            );
         }
     }
 }
