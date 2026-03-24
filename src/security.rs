@@ -93,7 +93,12 @@ pub enum SecurityError {
 ///   Byte 3: [strategy:2][000000:6]
 pub fn encode_byzantine_metadata(meta: &ByzantineMetadata) -> [u8; 4] {
     let byte3 = (meta.strategy as u8) << 6;
-    [meta.original_count, meta.removed_count, meta.cohesion_q, byte3]
+    [
+        meta.original_count,
+        meta.removed_count,
+        meta.cohesion_q,
+        byte3,
+    ]
 }
 
 /// Decode 4 bytes to Byzantine metadata.
@@ -186,11 +191,16 @@ pub fn encode_provenance_entry(entry: &ProvenanceEntry) -> Result<[u8; 6], Secur
     if entry.precision_mode > 2 {
         return Err(SecurityError::InvalidPrecisionMode(entry.precision_mode));
     }
-    let byte0 = (entry.origin_tier << 6)
-        | (entry.operator_id << 2)
-        | entry.precision_mode;
+    let byte0 = (entry.origin_tier << 6) | (entry.operator_id << 2) | entry.precision_mode;
     let offset_be = entry.time_offset.to_be_bytes();
-    Ok([byte0, entry.b_q, entry.d_q, entry.a_q, offset_be[0], offset_be[1]])
+    Ok([
+        byte0,
+        entry.b_q,
+        entry.d_q,
+        entry.a_q,
+        offset_be[0],
+        offset_be[1],
+    ])
 }
 
 /// Decode 6 bytes to a provenance entry.
@@ -459,7 +469,7 @@ pub fn compute_syndromes(
 
     for (i, entry) in entries.iter().enumerate() {
         let h = crc8(entry);
-        for k in 0..num_syndromes {
+        for (k, syndrome) in syndromes[..num_syndromes].iter_mut().enumerate() {
             // weight = α^{k*i}. Since α^0 = 1, and (k*i) mod 255 handles wrap.
             // Special case: k*i = 0 → weight = 1 (α^0).
             let power = (k * i) % 255;
@@ -469,7 +479,7 @@ pub fn compute_syndromes(
             } else {
                 GF_EXP[power]
             };
-            syndromes[k] ^= gf_mul(weight, h);
+            *syndrome ^= gf_mul(weight, h);
         }
     }
 
@@ -608,10 +618,7 @@ pub fn encode_provenance_chain(
 /// * `InvalidT` if t is 0 or > MAX_T.
 /// * `InsufficientData` if data is too short for the declared chain length.
 #[cfg(feature = "alloc")]
-pub fn decode_provenance_chain(
-    data: &[u8],
-    t: u8,
-) -> Result<DecodedChain, SecurityError> {
+pub fn decode_provenance_chain(data: &[u8], t: u8) -> Result<DecodedChain, SecurityError> {
     if t == 0 || t > MAX_T {
         return Err(SecurityError::InvalidT(t));
     }
@@ -663,7 +670,7 @@ pub fn decode_provenance_chain(
 /// which is sufficient for tamper detection (not authentication).
 #[cfg(feature = "digest")]
 pub fn compute_chain_digest(data: &[u8]) -> [u8; CHAIN_DIGEST_SIZE] {
-    use sha2::{Sha256, Digest};
+    use sha2::{Digest, Sha256};
     let hash = Sha256::digest(data);
     let mut digest = [0u8; CHAIN_DIGEST_SIZE];
     digest.copy_from_slice(&hash[..CHAIN_DIGEST_SIZE]);
@@ -751,10 +758,7 @@ pub struct ChainVerification {
 /// * `InvalidT` if t is 0 or > MAX_T.
 /// * `InsufficientData` if data is too short.
 #[cfg(all(feature = "alloc", feature = "digest"))]
-pub fn verify_provenance_chain(
-    data: &[u8],
-    t: u8,
-) -> Result<ChainVerification, SecurityError> {
+pub fn verify_provenance_chain(data: &[u8], t: u8) -> Result<ChainVerification, SecurityError> {
     if t == 0 || t > MAX_T {
         return Err(SecurityError::InvalidT(t));
     }
@@ -777,10 +781,8 @@ pub fn verify_provenance_chain(
 
     // 4. Localize using stored vs recomputed
     let num_syn = 2 * t as usize;
-    let localization = localize_single_tamper(
-        &decoded.syndromes[..num_syn],
-        &recomputed[..num_syn],
-    )?;
+    let localization =
+        localize_single_tamper(&decoded.syndromes[..num_syn], &recomputed[..num_syn])?;
 
     Ok(ChainVerification {
         digest_valid,
@@ -937,7 +939,10 @@ mod tests {
             let result = decode_byzantine_metadata(&[0x0A, 0x02]);
             assert_eq!(
                 result,
-                Err(SecurityError::InsufficientData { expected: 4, got: 2 })
+                Err(SecurityError::InsufficientData {
+                    expected: 4,
+                    got: 2
+                })
             );
         }
 
@@ -946,7 +951,10 @@ mod tests {
             let result = decode_byzantine_metadata(&[]);
             assert_eq!(
                 result,
-                Err(SecurityError::InsufficientData { expected: 4, got: 0 })
+                Err(SecurityError::InsufficientData {
+                    expected: 4,
+                    got: 0
+                })
             );
         }
 
@@ -969,10 +977,7 @@ mod tests {
                 cohesion_q: 128,
                 strategy: RemovalStrategy::LeastTrusted,
             };
-            assert_eq!(
-                encode_byzantine_metadata(&meta),
-                [0x05, 0x01, 0x80, 0x40]
-            );
+            assert_eq!(encode_byzantine_metadata(&meta), [0x05, 0x01, 0x80, 0x40]);
         }
 
         #[test]
@@ -983,10 +988,7 @@ mod tests {
                 cohesion_q: 200,
                 strategy: RemovalStrategy::Combined,
             };
-            assert_eq!(
-                encode_byzantine_metadata(&meta),
-                [0x08, 0x03, 0xC8, 0x80]
-            );
+            assert_eq!(encode_byzantine_metadata(&meta), [0x08, 0x03, 0xC8, 0x80]);
         }
 
         #[test]
@@ -1005,8 +1007,10 @@ mod tests {
                     };
                     let data = encode_byzantine_metadata(&original);
                     let recovered = decode_byzantine_metadata(&data).unwrap();
-                    assert_eq!(recovered, original,
-                        "Failed: cohesion={cohesion}, strategy={strategy:?}");
+                    assert_eq!(
+                        recovered, original,
+                        "Failed: cohesion={cohesion}, strategy={strategy:?}"
+                    );
                 }
             }
         }
@@ -1037,7 +1041,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 217, d_q: 13, a_q: 128,
+                b_q: 217,
+                d_q: 13,
+                a_q: 128,
                 time_offset: 0,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1053,7 +1059,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 0,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1069,7 +1077,9 @@ mod tests {
                 origin_tier: 1,
                 operator_id: 4,
                 precision_mode: 0,
-                b_q: 200, d_q: 30, a_q: 128,
+                b_q: 200,
+                d_q: 30,
+                a_q: 128,
                 time_offset: 60,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1085,7 +1095,9 @@ mod tests {
                 origin_tier: 2,
                 operator_id: 3,
                 precision_mode: 1,
-                b_q: 150, d_q: 50, a_q: 128,
+                b_q: 150,
+                d_q: 50,
+                a_q: 128,
                 time_offset: 120,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1101,7 +1113,9 @@ mod tests {
                 origin_tier: 2,
                 operator_id: 12,
                 precision_mode: 2,
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 0,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1115,12 +1129,14 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 217, d_q: 13, a_q: 128,
+                b_q: 217,
+                d_q: 13,
+                a_q: 128,
                 time_offset: 0,
             };
             let data = encode_provenance_entry(&entry).unwrap();
             assert_eq!(data[1], 217); // b̂
-            assert_eq!(data[2], 13);  // d̂
+            assert_eq!(data[2], 13); // d̂
             assert_eq!(data[3], 128); // â
         }
 
@@ -1131,7 +1147,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 0x1234,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1145,7 +1163,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 0,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1160,7 +1180,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 65535,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1174,7 +1196,9 @@ mod tests {
                 origin_tier: 1,
                 operator_id: 4,
                 precision_mode: 0,
-                b_q: 200, d_q: 30, a_q: 128,
+                b_q: 200,
+                d_q: 30,
+                a_q: 128,
                 time_offset: 60,
             };
             let data = encode_provenance_entry(&original).unwrap();
@@ -1189,7 +1213,9 @@ mod tests {
                     origin_tier: tier,
                     operator_id: 1,
                     precision_mode: 0,
-                    b_q: 217, d_q: 13, a_q: 128,
+                    b_q: 217,
+                    d_q: 13,
+                    a_q: 128,
                     time_offset: 100,
                 };
                 let data = encode_provenance_entry(&original).unwrap();
@@ -1206,7 +1232,9 @@ mod tests {
                     origin_tier: 0,
                     operator_id: op,
                     precision_mode: 0,
-                    b_q: 100, d_q: 100, a_q: 128,
+                    b_q: 100,
+                    d_q: 100,
+                    a_q: 128,
                     time_offset: 0,
                 };
                 let data = encode_provenance_entry(&original).unwrap();
@@ -1222,7 +1250,9 @@ mod tests {
                     origin_tier: 0,
                     operator_id: 0,
                     precision_mode: pm,
-                    b_q: 200, d_q: 30, a_q: 128,
+                    b_q: 200,
+                    d_q: 30,
+                    a_q: 128,
                     time_offset: 500,
                 };
                 let data = encode_provenance_entry(&original).unwrap();
@@ -1237,7 +1267,9 @@ mod tests {
                 origin_tier: 2,
                 operator_id: 15,
                 precision_mode: 2,
-                b_q: 255, d_q: 255, a_q: 255,
+                b_q: 255,
+                d_q: 255,
+                a_q: 255,
                 time_offset: 65535,
             };
             let data = encode_provenance_entry(&original).unwrap();
@@ -1251,7 +1283,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 0,
             };
             let data = encode_provenance_entry(&original).unwrap();
@@ -1269,7 +1303,9 @@ mod tests {
                 origin_tier: 3, // invalid: max is 2
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 0,
             };
             assert_eq!(
@@ -1284,7 +1320,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 16, // invalid: max is 15 (4 bits)
                 precision_mode: 0,
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 0,
             };
             assert_eq!(
@@ -1299,7 +1337,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 3, // invalid: max is 2
-                b_q: 0, d_q: 0, a_q: 0,
+                b_q: 0,
+                d_q: 0,
+                a_q: 0,
                 time_offset: 0,
             };
             assert_eq!(
@@ -1313,7 +1353,10 @@ mod tests {
             let result = decode_provenance_entry(&[0x00, 0x01, 0x02]);
             assert_eq!(
                 result,
-                Err(SecurityError::InsufficientData { expected: 6, got: 3 })
+                Err(SecurityError::InsufficientData {
+                    expected: 6,
+                    got: 3
+                })
             );
         }
 
@@ -1322,7 +1365,10 @@ mod tests {
             let result = decode_provenance_entry(&[]);
             assert_eq!(
                 result,
-                Err(SecurityError::InsufficientData { expected: 6, got: 0 })
+                Err(SecurityError::InsufficientData {
+                    expected: 6,
+                    got: 0
+                })
             );
         }
 
@@ -1338,8 +1384,8 @@ mod tests {
             // Bytes 4-5: 16 bits
             // Total: 8+24+16 = 48 bits = 6 bytes
             assert_eq!(PROVENANCE_ENTRY_SIZE, 6);
-            assert_eq!(8 + 24 + 16, 48);  // bit budget
-            assert_eq!(48 / 8, 6);         // byte count
+            assert_eq!(8 + 24 + 16, 48); // bit budget
+            assert_eq!(48 / 8, 6); // byte count
         }
 
         // ---------------------------------------------------------------
@@ -1360,7 +1406,9 @@ mod tests {
                 origin_tier: 0,
                 operator_id: 0,
                 precision_mode: 0,
-                b_q: 217, d_q: 13, a_q: 128,
+                b_q: 217,
+                d_q: 13,
+                a_q: 128,
                 time_offset: 0,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1377,7 +1425,9 @@ mod tests {
                 origin_tier: 1,
                 operator_id: 4,
                 precision_mode: 0,
-                b_q: 200, d_q: 30, a_q: 128,
+                b_q: 200,
+                d_q: 30,
+                a_q: 128,
                 time_offset: 60,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1391,7 +1441,9 @@ mod tests {
                 origin_tier: 2,
                 operator_id: 1,
                 precision_mode: 0,
-                b_q: 180, d_q: 40, a_q: 128,
+                b_q: 180,
+                d_q: 40,
+                a_q: 128,
                 time_offset: 120,
             };
             let data = encode_provenance_entry(&entry).unwrap();
@@ -1412,13 +1464,14 @@ mod tests {
                             origin_tier: tier,
                             operator_id: op,
                             precision_mode: pm,
-                            b_q: 100, d_q: 50, a_q: 128,
+                            b_q: 100,
+                            d_q: 50,
+                            a_q: 128,
                             time_offset: 300,
                         };
                         let data = encode_provenance_entry(&original).unwrap();
                         let recovered = decode_provenance_entry(&data).unwrap();
-                        assert_eq!(recovered, original,
-                            "Failed: tier={tier}, op={op}, pm={pm}");
+                        assert_eq!(recovered, original, "Failed: tier={tier}, op={op}, pm={pm}");
                     }
                 }
             }
@@ -1483,8 +1536,7 @@ mod tests {
             // Exhaustive: all 256×256 = 65,536 pairs
             for a in 0..=255u8 {
                 for b in 0..=255u8 {
-                    assert_eq!(gf_mul(a, b), gf_mul(b, a),
-                        "Commutativity failed: {a}*{b}");
+                    assert_eq!(gf_mul(a, b), gf_mul(b, a), "Commutativity failed: {a}*{b}");
                 }
             }
         }
@@ -1493,9 +1545,12 @@ mod tests {
         fn gf_inverse_all_nonzero() {
             for a in 1..=255u8 {
                 let inv = gf_inv(a);
-                assert_eq!(gf_mul(a, inv), 1,
+                assert_eq!(
+                    gf_mul(a, inv),
+                    1,
                     "Inverse failed: {a} * {inv} = {}, expected 1",
-                    gf_mul(a, inv));
+                    gf_mul(a, inv)
+                );
             }
         }
 
@@ -1509,8 +1564,10 @@ mod tests {
             for v in 1..=255u8 {
                 let log_v = gf_log(v);
                 let exp_log_v = gf_exp(log_v);
-                assert_eq!(exp_log_v, v,
-                    "exp(log({v})) = exp({log_v}) = {exp_log_v}, expected {v}");
+                assert_eq!(
+                    exp_log_v, v,
+                    "exp(log({v})) = exp({log_v}) = {exp_log_v}, expected {v}"
+                );
             }
         }
 
@@ -1520,8 +1577,10 @@ mod tests {
             for i in 0..255u8 {
                 let exp_i = gf_exp(i);
                 let log_exp_i = gf_log(exp_i);
-                assert_eq!(log_exp_i, i,
-                    "log(exp({i})) = log({exp_i}) = {log_exp_i}, expected {i}");
+                assert_eq!(
+                    log_exp_i, i,
+                    "log(exp({i})) = log({exp_i}) = {log_exp_i}, expected {i}"
+                );
             }
         }
 
@@ -1602,8 +1661,10 @@ mod tests {
                     }
                 }
             }
-            assert_eq!(flips_detected, total_flips,
-                "CRC-8 must detect ALL {total_flips} single-bit flips, detected {flips_detected}");
+            assert_eq!(
+                flips_detected, total_flips,
+                "CRC-8 must detect ALL {total_flips} single-bit flips, detected {flips_detected}"
+            );
         }
 
         #[test]
@@ -1763,17 +1824,13 @@ mod tests {
             let s = compute_syndromes(&entries, 2).unwrap();
 
             // S2 = alpha^0*h0 XOR alpha^2*h1 XOR alpha^4*h2 XOR alpha^6*h3
-            let expected_s2 = h[0]
-                ^ gf_mul(gf_exp(2), h[1])
-                ^ gf_mul(gf_exp(4), h[2])
-                ^ gf_mul(gf_exp(6), h[3]);
+            let expected_s2 =
+                h[0] ^ gf_mul(gf_exp(2), h[1]) ^ gf_mul(gf_exp(4), h[2]) ^ gf_mul(gf_exp(6), h[3]);
             assert_eq!(s[2], expected_s2, "S2 manual check");
 
             // S3 = alpha^0*h0 XOR alpha^3*h1 XOR alpha^6*h2 XOR alpha^9*h3
-            let expected_s3 = h[0]
-                ^ gf_mul(gf_exp(3), h[1])
-                ^ gf_mul(gf_exp(6), h[2])
-                ^ gf_mul(gf_exp(9), h[3]);
+            let expected_s3 =
+                h[0] ^ gf_mul(gf_exp(3), h[1]) ^ gf_mul(gf_exp(6), h[2]) ^ gf_mul(gf_exp(9), h[3]);
             assert_eq!(s[3], expected_s3, "S3 manual check");
         }
 
@@ -1857,8 +1914,14 @@ mod tests {
             // Verify delta algebra localizes correctly for ALL 10 positions
             let entries: [[u8; 6]; 10] = core::array::from_fn(|i| {
                 let i = i as u8;
-                [i.wrapping_mul(17), i.wrapping_mul(31), i.wrapping_mul(47),
-                 i.wrapping_mul(63), i.wrapping_mul(79), i.wrapping_mul(97)]
+                [
+                    i.wrapping_mul(17),
+                    i.wrapping_mul(31),
+                    i.wrapping_mul(47),
+                    i.wrapping_mul(63),
+                    i.wrapping_mul(79),
+                    i.wrapping_mul(97),
+                ]
             });
             let s_orig = compute_syndromes(&entries, 1).unwrap();
 
@@ -1885,7 +1948,10 @@ mod tests {
             let result = localize_single_tamper(&[0x00, 0x00], &[0x00]);
             assert_eq!(
                 result,
-                Err(SecurityError::SyndromeLengthMismatch { stored: 2, received: 1 })
+                Err(SecurityError::SyndromeLengthMismatch {
+                    stored: 2,
+                    received: 1
+                })
             );
         }
 
@@ -1931,7 +1997,7 @@ mod tests {
         #[test]
         fn localize_delta0_zero_delta1_nonzero_is_multi() {
             // delta0=0 but delta1≠0: impossible for single entry, indicates multi
-            let stored   = [0xAA, 0xBB];
+            let stored = [0xAA, 0xBB];
             let received = [0xAA, 0xCC]; // delta0=0, delta1=0xBB^0xCC=0x77
             assert_eq!(
                 localize_single_tamper(&stored, &received).unwrap(),
@@ -1942,7 +2008,7 @@ mod tests {
         #[test]
         fn localize_delta0_nonzero_delta1_zero_is_multi() {
             // delta0≠0 but delta1=0: would require α^j=0, impossible in GF(2⁸)
-            let stored   = [0xAA, 0xBB];
+            let stored = [0xAA, 0xBB];
             let received = [0xCC, 0xBB]; // delta0=0xAA^0xCC=0x66, delta1=0
             assert_eq!(
                 localize_single_tamper(&stored, &received).unwrap(),
@@ -1997,8 +2063,14 @@ mod tests {
             // Typical IoT pipeline: 8 sensors + 1 fusion = 9 entries
             let entries: [[u8; 6]; 9] = core::array::from_fn(|i| {
                 let i = i as u8;
-                [i.wrapping_mul(13), i.wrapping_mul(29), i.wrapping_mul(41),
-                 i.wrapping_mul(59), i.wrapping_mul(71), i.wrapping_mul(83)]
+                [
+                    i.wrapping_mul(13),
+                    i.wrapping_mul(29),
+                    i.wrapping_mul(41),
+                    i.wrapping_mul(59),
+                    i.wrapping_mul(71),
+                    i.wrapping_mul(83),
+                ]
             });
             let s_orig = compute_syndromes(&entries, 1).unwrap();
 
@@ -2203,8 +2275,14 @@ mod tests {
             let ts = 0xDEADBEEFu32;
             let entries: [[u8; 6]; 9] = core::array::from_fn(|i| {
                 let i = i as u8;
-                [i.wrapping_mul(13), i.wrapping_mul(29), i.wrapping_mul(41),
-                 i.wrapping_mul(59), i.wrapping_mul(71), i.wrapping_mul(83)]
+                [
+                    i.wrapping_mul(13),
+                    i.wrapping_mul(29),
+                    i.wrapping_mul(41),
+                    i.wrapping_mul(59),
+                    i.wrapping_mul(71),
+                    i.wrapping_mul(83),
+                ]
             });
             let encoded = encode_provenance_chain(ts, &entries, 2).unwrap();
             let decoded = decode_provenance_chain(&encoded, 2).unwrap();
@@ -2215,7 +2293,10 @@ mod tests {
             }
             let expected_syn = compute_syndromes(&entries, 2).unwrap();
             for k in 0..4 {
-                assert_eq!(decoded.syndromes[k], expected_syn[k], "Syndrome {k} mismatch");
+                assert_eq!(
+                    decoded.syndromes[k], expected_syn[k],
+                    "Syndrome {k} mismatch"
+                );
             }
         }
 
@@ -2296,8 +2377,11 @@ mod tests {
                 for bit_pos in 0..8u8 {
                     let mut flipped = original;
                     flipped[byte_pos] ^= 1 << bit_pos;
-                    assert_ne!(compute_chain_digest(&flipped), d_orig,
-                        "Bit flip at byte {byte_pos} bit {bit_pos} not detected");
+                    assert_ne!(
+                        compute_chain_digest(&flipped),
+                        d_orig,
+                        "Bit flip at byte {byte_pos} bit {bit_pos} not detected"
+                    );
                 }
             }
         }
@@ -2305,7 +2389,7 @@ mod tests {
         #[test]
         fn digest_is_truncated_sha256() {
             // Verify against sha2 crate directly: first 8 bytes of SHA-256
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             let data = b"cborld-ex chain digest test vector";
             let full_sha = Sha256::digest(data);
             let d = compute_chain_digest(data);
@@ -2316,7 +2400,7 @@ mod tests {
         fn digest_empty_input() {
             // SHA-256 of empty = e3b0c44298fc1c14...
             // First 8 bytes: e3 b0 c4 42 98 fc 1c 14
-            use sha2::{Sha256, Digest};
+            use sha2::{Digest, Sha256};
             let full_sha = Sha256::digest(b"");
             let d = compute_chain_digest(&[]);
             assert_eq!(d, full_sha[..8]);
@@ -2443,12 +2527,18 @@ mod tests {
 
         #[test]
         fn hardened_t0_invalid() {
-            assert_eq!(encode_hardened_chain(0, &[], 0), Err(SecurityError::InvalidT(0)));
+            assert_eq!(
+                encode_hardened_chain(0, &[], 0),
+                Err(SecurityError::InvalidT(0))
+            );
         }
 
         #[test]
         fn hardened_t8_invalid() {
-            assert_eq!(encode_hardened_chain(0, &[], 8), Err(SecurityError::InvalidT(8)));
+            assert_eq!(
+                encode_hardened_chain(0, &[], 8),
+                Err(SecurityError::InvalidT(8))
+            );
         }
     }
 
@@ -2520,8 +2610,14 @@ mod tests {
         fn verify_single_tamper_each_position_n9() {
             let entries: [[u8; 6]; 9] = core::array::from_fn(|i| {
                 let i = i as u8;
-                [i.wrapping_mul(13), i.wrapping_mul(29), i.wrapping_mul(41),
-                 i.wrapping_mul(59), i.wrapping_mul(71), i.wrapping_mul(83)]
+                [
+                    i.wrapping_mul(13),
+                    i.wrapping_mul(29),
+                    i.wrapping_mul(41),
+                    i.wrapping_mul(59),
+                    i.wrapping_mul(71),
+                    i.wrapping_mul(83),
+                ]
             });
             let hardened = encode_hardened_chain(0, &entries, 1).unwrap();
 
@@ -2604,9 +2700,7 @@ mod tests {
 
         #[test]
         fn verify_t2_single_tamper_localized() {
-            let entries: [[u8; 6]; 5] = core::array::from_fn(|i| {
-                [(i as u8).wrapping_mul(7); 6]
-            });
+            let entries: [[u8; 6]; 5] = core::array::from_fn(|i| [(i as u8).wrapping_mul(7); 6]);
             let mut hardened = encode_hardened_chain(0, &entries, 2).unwrap();
             hardened[5 + 3 * 6 + 1] ^= 0x10; // tamper entry 3
             let result = verify_provenance_chain(&hardened, 2).unwrap();

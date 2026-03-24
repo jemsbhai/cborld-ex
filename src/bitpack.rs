@@ -285,11 +285,11 @@ mod tests {
         // 2 bits (compliance_status) + 1 bit (delegation) + 2 bits (tier)
         // + 1 bit (has_opinion) + 2 bits (precision_mode) = 8 bits total
         let mut w = BitWriter::new();
-        w.write(0b10, 2);   // compliance_status = INSUFFICIENT
-        w.write(0b1, 1);    // delegation_flag = true
-        w.write(0b01, 2);   // origin_tier = EDGE
-        w.write(0b1, 1);    // has_opinion = true
-        w.write(0b00, 2);   // precision_mode = 8-bit
+        w.write(0b10, 2); // compliance_status = INSUFFICIENT
+        w.write(0b1, 1); // delegation_flag = true
+        w.write(0b01, 2); // origin_tier = EDGE
+        w.write(0b1, 1); // has_opinion = true
+        w.write(0b00, 2); // precision_mode = 8-bit
 
         let bytes = w.as_bytes();
         assert_eq!(bytes.len(), 1);
@@ -425,7 +425,7 @@ mod tests {
         // should be written. E.g., write(0xFF, 4) should write 0b1111.
         let mut w = BitWriter::new();
         w.write(0xFF, 4); // Only lowest 4 bits: 0b1111
-        // 1111_0000 = 0xF0
+                          // 1111_0000 = 0xF0
         assert_eq!(w.as_bytes(), &[0xF0]);
 
         let mut r = BitReader::new(w.as_bytes());
@@ -518,18 +518,18 @@ mod tests {
         // Byte 0: [00][0][00][1][00] = 0b0000_0100 = 0x04
         let mut w = BitWriter::new();
         w.write(0b00, 2); // compliance_status
-        w.write(0, 1);    // delegation_flag
+        w.write(0, 1); // delegation_flag
         w.write(0b00, 2); // origin_tier
-        w.write(1, 1);    // has_opinion
+        w.write(1, 1); // has_opinion
         w.write(0b00, 2); // precision_mode
 
         assert_eq!(w.as_bytes(), &[0x04]);
 
         let mut r = BitReader::new(w.as_bytes());
         assert_eq!(r.read(2), 0b00); // COMPLIANT
-        assert_eq!(r.read(1), 0);    // no delegation
+        assert_eq!(r.read(1), 0); // no delegation
         assert_eq!(r.read(2), 0b00); // CONSTRAINED
-        assert_eq!(r.read(1), 1);    // has opinion
+        assert_eq!(r.read(1), 1); // has opinion
         assert_eq!(r.read(2), 0b00); // 8-bit
     }
 }

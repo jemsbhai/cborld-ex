@@ -28,7 +28,7 @@
 
 use crate::annotation::Annotation;
 use crate::codec::{self, CodecError, ContextRegistry};
-use crate::header::{Header, ComplianceStatus, PrecisionMode};
+use crate::header::{ComplianceStatus, Header, PrecisionMode};
 use crate::opinion::dequantize_binomial;
 
 use ciborium::Value;
@@ -82,13 +82,10 @@ pub fn from_mqtt_payload(
 /// The compliance status in the topic enables topic-based filtering
 /// at the MQTT broker level — subscribers can filter by compliance
 /// state without payload inspection.
-pub fn derive_topic(
-    doc: &[(Value, Value)],
-    annotation: &Annotation,
-    prefix: &str,
-) -> String {
+pub fn derive_topic(doc: &[(Value, Value)], annotation: &Annotation, prefix: &str) -> String {
     // Extract @type
-    let type_str = doc.iter()
+    let type_str = doc
+        .iter()
         .find(|(k, _)| matches!(k, Value::Text(s) if s == "@type"))
         .and_then(|(_, v)| match v {
             Value::Text(s) => Some(local_name(s)),
@@ -97,7 +94,8 @@ pub fn derive_topic(
         .unwrap_or("unknown");
 
     // Extract @id
-    let id_str = doc.iter()
+    let id_str = doc
+        .iter()
         .find(|(k, _)| matches!(k, Value::Text(s) if s == "@id"))
         .and_then(|(_, v)| match v {
             Value::Text(s) => Some(local_name(s)),
@@ -157,8 +155,8 @@ pub fn derive_qos(annotation: &Annotation) -> u8 {
         PrecisionMode::Reserved => return 1,
     };
 
-    let (b, _d, u, a) = dequantize_binomial(q, precision_bits)
-        .expect("valid quantized opinion should dequantize");
+    let (b, _d, u, a) =
+        dequantize_binomial(q, precision_bits).expect("valid quantized opinion should dequantize");
 
     let projected = b + a * u;
 
@@ -264,8 +262,14 @@ mod tests {
 
     fn sample_doc() -> Vec<(Value, Value)> {
         vec![
-            (Value::Text("@type".into()), Value::Text("TemperatureReading".into())),
-            (Value::Text("@id".into()), Value::Text("urn:sensor:temp-042".into())),
+            (
+                Value::Text("@type".into()),
+                Value::Text("TemperatureReading".into()),
+            ),
+            (
+                Value::Text("@id".into()),
+                Value::Text("urn:sensor:temp-042".into()),
+            ),
             (Value::Text("value".into()), Value::Float(22.5)),
             (Value::Text("unit".into()), Value::Text("Celsius".into())),
         ]
@@ -395,7 +399,8 @@ mod tests {
             assert!(
                 topic.ends_with(expected_suffix),
                 "Expected topic to end with '{}', got '{}'",
-                expected_suffix, topic
+                expected_suffix,
+                topic
             );
         }
     }
@@ -414,23 +419,35 @@ mod tests {
         // Use a plain string (no IRI structure) so local_name returns it
         // whole, and both '#' and '+' reach sanitize_topic_segment.
         let doc = vec![
-            (Value::Text("@type".into()), Value::Text("Sensor+Reading".into())),
-            (Value::Text("@id".into()), Value::Text("urn:sensor:node#1+2".into())),
+            (
+                Value::Text("@type".into()),
+                Value::Text("Sensor+Reading".into()),
+            ),
+            (
+                Value::Text("@id".into()),
+                Value::Text("urn:sensor:node#1+2".into()),
+            ),
         ];
         let ann = sample_annotation_no_opinion();
 
         let topic = derive_topic(&doc, &ann, "cbor-ld-ex");
         // '+' in @type local name must be replaced with '_'
-        assert!(!topic.contains('+'), "Topic must not contain '+': {}", topic);
+        assert!(
+            !topic.contains('+'),
+            "Topic must not contain '+': {}",
+            topic
+        );
         assert!(
             topic.contains("Sensor_Reading"),
-            "Expected sanitized @type segment, got: {}", topic
+            "Expected sanitized @type segment, got: {}",
+            topic
         );
         // For @id "urn:sensor:node#1+2", local_name splits on '#' → "1+2",
         // then sanitize replaces '+' → "1_2"
         assert!(
             topic.contains("1_2"),
-            "Expected sanitized @id segment, got: {}", topic
+            "Expected sanitized @id segment, got: {}",
+            topic
         );
     }
 
@@ -441,8 +458,14 @@ mod tests {
     #[test]
     fn test_derive_topic_iri_fragment() {
         let doc = vec![
-            (Value::Text("@type".into()), Value::Text("http://example.org/ns#TemperatureReading".into())),
-            (Value::Text("@id".into()), Value::Text("http://example.org/sensors#temp-042".into())),
+            (
+                Value::Text("@type".into()),
+                Value::Text("http://example.org/ns#TemperatureReading".into()),
+            ),
+            (
+                Value::Text("@id".into()),
+                Value::Text("http://example.org/sensors#temp-042".into()),
+            ),
         ];
         let ann = sample_annotation_no_opinion();
 
@@ -457,8 +480,14 @@ mod tests {
     #[test]
     fn test_derive_topic_urn() {
         let doc = vec![
-            (Value::Text("@type".into()), Value::Text("urn:iot:type:TempReading".into())),
-            (Value::Text("@id".into()), Value::Text("urn:sensor:temp-042".into())),
+            (
+                Value::Text("@type".into()),
+                Value::Text("urn:iot:type:TempReading".into()),
+            ),
+            (
+                Value::Text("@id".into()),
+                Value::Text("urn:sensor:temp-042".into()),
+            ),
         ];
         let ann = sample_annotation_no_opinion();
 
@@ -583,7 +612,8 @@ mod tests {
         assert!(
             fits_single_frame(&payload),
             "Tier 1 payload ({} bytes) should fit in single 802.15.4 frame (max {} bytes)",
-            payload.len(), MAX_SINGLE_FRAME_PAYLOAD
+            payload.len(),
+            MAX_SINGLE_FRAME_PAYLOAD
         );
     }
 

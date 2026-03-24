@@ -159,7 +159,9 @@ pub fn decode_half_life(value: u8) -> f64 {
 /// - Linear: λ(t,τ) = max(0, 1 − t/(2τ))
 /// - Step: λ(t,τ) = 1 if t < τ, else 0
 pub fn compute_decay_factor(
-    decay_fn: u8, half_life: f64, elapsed: f64,
+    decay_fn: u8,
+    half_life: f64,
+    elapsed: f64,
 ) -> Result<f64, TemporalError> {
     match decay_fn {
         DECAY_EXPONENTIAL => Ok(f64_exp2(-elapsed / half_life)),
@@ -246,7 +248,10 @@ pub fn decode_extensions(data: &[u8]) -> Result<ExtensionBlock, TemporalError> {
         }
         let decay_fn = r.read(2) as u8;
         let half_life_encoded = r.read(8) as u8;
-        Some(TemporalBlock { decay_fn, half_life_encoded })
+        Some(TemporalBlock {
+            decay_fn,
+            half_life_encoded,
+        })
     } else {
         None
     };
@@ -270,7 +275,10 @@ pub fn decode_extensions(data: &[u8]) -> Result<ExtensionBlock, TemporalError> {
             } else {
                 0
             };
-            trigs.push(Trigger { trigger_type, parameter });
+            trigs.push(Trigger {
+                trigger_type,
+                parameter,
+            });
         }
         Some(trigs)
     } else {
@@ -320,7 +328,10 @@ mod tests {
         // Verify the decoded value is close to 3600
         let decoded = decode_half_life(v);
         let ratio = decoded / 3600.0;
-        assert!(ratio > 0.9 && ratio < 1.1, "1 hour: decoded={decoded}, ratio={ratio}");
+        assert!(
+            ratio > 0.9 && ratio < 1.1,
+            "1 hour: decoded={decoded}, ratio={ratio}"
+        );
     }
 
     #[test]
@@ -329,7 +340,10 @@ mod tests {
         let v = encode_half_life(86400.0).unwrap();
         let decoded = decode_half_life(v);
         let ratio = decoded / 86400.0;
-        assert!(ratio > 0.9 && ratio < 1.1, "1 day: decoded={decoded}, ratio={ratio}");
+        assert!(
+            ratio > 0.9 && ratio < 1.1,
+            "1 day: decoded={decoded}, ratio={ratio}"
+        );
     }
 
     #[test]
@@ -373,8 +387,10 @@ mod tests {
         let mut prev_decoded = 0.0f64;
         for v in 0u8..=255 {
             let decoded = decode_half_life(v);
-            assert!(decoded >= prev_decoded,
-                "Non-monotonic at v={v}: {decoded} < {prev_decoded}");
+            assert!(
+                decoded >= prev_decoded,
+                "Non-monotonic at v={v}: {decoded} < {prev_decoded}"
+            );
             prev_decoded = decoded;
         }
     }
@@ -388,8 +404,10 @@ mod tests {
             let decoded = decode_half_life(encoded);
             // Log-scale: each step is ~7%, so ratio should be within ~10%
             let ratio = decoded / seconds;
-            assert!(ratio > 0.85 && ratio < 1.18,
-                "Roundtrip for {seconds}s: encoded={encoded}, decoded={decoded}, ratio={ratio}");
+            assert!(
+                ratio > 0.85 && ratio < 1.18,
+                "Roundtrip for {seconds}s: encoded={encoded}, decoded={decoded}, ratio={ratio}"
+            );
         }
     }
 
@@ -519,8 +537,10 @@ mod tests {
                 };
                 let bytes = encode_extensions(&original).unwrap();
                 let decoded = decode_extensions(&bytes).unwrap();
-                assert_eq!(decoded, original,
-                    "Roundtrip failed for decay_fn={df}, half_life={hl}");
+                assert_eq!(
+                    decoded, original,
+                    "Roundtrip failed for decay_fn={df}, half_life={hl}"
+                );
             }
         }
     }
@@ -563,9 +583,18 @@ mod tests {
         let original = ExtensionBlock {
             temporal: None,
             triggers: Some(vec![
-                Trigger { trigger_type: TRIGGER_EXPIRY, parameter: 128 },
-                Trigger { trigger_type: TRIGGER_REVIEW_DUE, parameter: 64 },
-                Trigger { trigger_type: TRIGGER_REG_CHANGE, parameter: 0 },
+                Trigger {
+                    trigger_type: TRIGGER_EXPIRY,
+                    parameter: 128,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_REVIEW_DUE,
+                    parameter: 64,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_REG_CHANGE,
+                    parameter: 0,
+                },
             ]),
         };
         let bytes = encode_extensions(&original).unwrap();
@@ -579,13 +608,34 @@ mod tests {
         let original = ExtensionBlock {
             temporal: None,
             triggers: Some(vec![
-                Trigger { trigger_type: TRIGGER_EXPIRY, parameter: 10 },
-                Trigger { trigger_type: TRIGGER_REVIEW_DUE, parameter: 20 },
-                Trigger { trigger_type: TRIGGER_REG_CHANGE, parameter: 0 },
-                Trigger { trigger_type: TRIGGER_WITHDRAWAL, parameter: 0 },
-                Trigger { trigger_type: TRIGGER_EXPIRY, parameter: 30 },
-                Trigger { trigger_type: TRIGGER_REVIEW_DUE, parameter: 40 },
-                Trigger { trigger_type: TRIGGER_REG_CHANGE, parameter: 0 },
+                Trigger {
+                    trigger_type: TRIGGER_EXPIRY,
+                    parameter: 10,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_REVIEW_DUE,
+                    parameter: 20,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_REG_CHANGE,
+                    parameter: 0,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_WITHDRAWAL,
+                    parameter: 0,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_EXPIRY,
+                    parameter: 30,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_REVIEW_DUE,
+                    parameter: 40,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_REG_CHANGE,
+                    parameter: 0,
+                },
             ]),
         };
         let bytes = encode_extensions(&original).unwrap();
@@ -605,8 +655,14 @@ mod tests {
                 half_life_encoded: 100,
             }),
             triggers: Some(vec![
-                Trigger { trigger_type: TRIGGER_EXPIRY, parameter: 200 },
-                Trigger { trigger_type: TRIGGER_WITHDRAWAL, parameter: 0 },
+                Trigger {
+                    trigger_type: TRIGGER_EXPIRY,
+                    parameter: 200,
+                },
+                Trigger {
+                    trigger_type: TRIGGER_WITHDRAWAL,
+                    parameter: 0,
+                },
             ]),
         };
         let bytes = encode_extensions(&original).unwrap();
@@ -649,7 +705,11 @@ mod tests {
         let ext = ExtensionBlock {
             temporal: None,
             triggers: Some(vec![
-                Trigger { trigger_type: TRIGGER_EXPIRY, parameter: 0 }; 8
+                Trigger {
+                    trigger_type: TRIGGER_EXPIRY,
+                    parameter: 0
+                };
+                8
             ]),
         };
         assert!(matches!(
@@ -733,10 +793,13 @@ mod tests {
     fn test_python_interop_decode_temporal() {
         // Decode the bytes from above
         let decoded = decode_extensions(&[0x87, 0x80]).unwrap();
-        assert_eq!(decoded.temporal, Some(TemporalBlock {
-            decay_fn: DECAY_EXPONENTIAL,
-            half_life_encoded: 120,
-        }));
+        assert_eq!(
+            decoded.temporal,
+            Some(TemporalBlock {
+                decay_fn: DECAY_EXPONENTIAL,
+                half_life_encoded: 120,
+            })
+        );
         assert_eq!(decoded.triggers, None);
     }
 
@@ -759,8 +822,7 @@ mod tests {
                 };
                 let bytes = encode_extensions(&original).unwrap();
                 let decoded = decode_extensions(&bytes).unwrap();
-                assert_eq!(decoded, original,
-                    "Failed at decay_fn={df}, half_life={hl}");
+                assert_eq!(decoded, original, "Failed at decay_fn={df}, half_life={hl}");
                 count += 1;
             }
         }

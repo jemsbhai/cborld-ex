@@ -13,19 +13,17 @@
 //! Zero cost when absent.
 
 use crate::header::{
-    Header, HeaderError, PrecisionMode,
-    encode_header, decode_header, header_size,
+    decode_header, encode_header, header_size, Header, HeaderError, PrecisionMode,
 };
 use crate::opinion::{
-    OpinionError, QuantizedBinomial,
-    encode_opinion_bytes, decode_opinion_bytes, opinion_wire_size,
+    decode_opinion_bytes, encode_opinion_bytes, opinion_wire_size, OpinionError, QuantizedBinomial,
 };
 
 // When the `alloc` feature is enabled (implied by `std`), annotations
 // can carry temporal extensions (half-life, decay, triggers).
 // This import is only available when temporal.rs is compiled.
 #[cfg(feature = "alloc")]
-use crate::temporal::{ExtensionBlock, TemporalError, encode_extensions, decode_extensions};
+use crate::temporal::{decode_extensions, encode_extensions, ExtensionBlock, TemporalError};
 
 #[cfg(all(feature = "alloc", not(feature = "std")))]
 use alloc::vec::Vec;
@@ -110,7 +108,11 @@ impl Annotation {
         opinion: Option<QuantizedBinomial>,
         extensions: Option<ExtensionBlock>,
     ) -> Self {
-        Self { header, opinion, extensions }
+        Self {
+            header,
+            opinion,
+            extensions,
+        }
     }
 }
 
@@ -277,15 +279,17 @@ pub fn decode_annotation_full(data: &[u8]) -> Result<Annotation, AnnotationError
         None
     };
 
-    Ok(Annotation { header: hdr, opinion, extensions })
+    Ok(Annotation {
+        header: hdr,
+        opinion,
+        extensions,
+    })
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::header::{
-        ComplianceStatus, OperatorId, Tier1Header, Tier2Header, Tier3Header,
-    };
+    use crate::header::{ComplianceStatus, OperatorId, Tier1Header, Tier2Header, Tier3Header};
 
     // =================================================================
     // Tier 1 annotation encode — header only (no opinion)
@@ -301,7 +305,7 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: None,
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 1); // header only
@@ -328,15 +332,15 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 1 byte header + 3 bytes opinion = 4 bytes total
         assert_eq!(len, 4);
         assert_eq!(buf[0], 0x04); // [00][0][00][1][00]
-        assert_eq!(buf[1], 217);  // b̂
-        assert_eq!(buf[2], 13);   // d̂
-        assert_eq!(buf[3], 128);  // â (NOT û — û is derived)
+        assert_eq!(buf[1], 217); // b̂
+        assert_eq!(buf[2], 13); // d̂
+        assert_eq!(buf[3], 128); // â (NOT û — û is derived)
     }
 
     // =================================================================
@@ -358,7 +362,7 @@ mod tests {
                 uncertainty: 6553,
                 base_rate: 32768,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 1 byte header + 6 bytes opinion = 7 bytes
@@ -391,14 +395,14 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         // 4 byte header + 3 bytes opinion = 7 bytes
         assert_eq!(len, 7);
         assert_eq!(&buf[..4], &[0x0C, 0x13, 0x10, 0x05]); // header
         assert_eq!(buf[4], 217); // b̂
-        assert_eq!(buf[5], 13);  // d̂
+        assert_eq!(buf[5], 13); // d̂
         assert_eq!(buf[6], 128); // â
     }
 
@@ -423,7 +427,7 @@ mod tests {
                 sub_tier_depth: 0,
             }),
             opinion: None,
-        extensions: None,
+            extensions: None,
         };
         let (_buf, len) = encode_annotation(&ann).unwrap();
         // 4 byte header, no opinion
@@ -444,7 +448,7 @@ mod tests {
                 precision_mode: PrecisionMode::Bits32,
             }),
             opinion: None,
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -466,7 +470,7 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -488,7 +492,7 @@ mod tests {
                 uncertainty: 6553,
                 base_rate: 32768,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -516,7 +520,7 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 100,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -545,7 +549,7 @@ mod tests {
                 uncertainty: 55,
                 base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -569,7 +573,7 @@ mod tests {
                 sub_tier_depth: 15,
             }),
             opinion: None,
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&original).unwrap();
         let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -591,7 +595,7 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: None,
-        extensions: None,
+            extensions: None,
         };
         assert_eq!(
             encode_annotation(&ann),
@@ -610,9 +614,12 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: Some(QuantizedBinomial {
-                belief: 100, disbelief: 50, uncertainty: 105, base_rate: 128,
+                belief: 100,
+                disbelief: 50,
+                uncertainty: 105,
+                base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         assert_eq!(
             encode_annotation(&ann),
@@ -648,7 +655,7 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: None,
-        extensions: None,
+            extensions: None,
         };
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 1);
@@ -662,9 +669,12 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: Some(QuantizedBinomial {
-                belief: 200, disbelief: 30, uncertainty: 25, base_rate: 128,
+                belief: 200,
+                disbelief: 30,
+                uncertainty: 25,
+                base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 4);
@@ -684,9 +694,12 @@ mod tests {
                 source_count: 0,
             }),
             opinion: Some(QuantizedBinomial {
-                belief: 200, disbelief: 30, uncertainty: 25, base_rate: 128,
+                belief: 200,
+                disbelief: 30,
+                uncertainty: 25,
+                base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 7);
@@ -706,9 +719,12 @@ mod tests {
                 source_count: 0,
             }),
             opinion: Some(QuantizedBinomial {
-                belief: 50000, disbelief: 10000, uncertainty: 5535, base_rate: 32768,
+                belief: 50000,
+                disbelief: 10000,
+                uncertainty: 5535,
+                base_rate: 32768,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (_, len) = encode_annotation(&ann).unwrap();
         assert_eq!(len, 10);
@@ -732,9 +748,12 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             opinion: Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(&buf[..len], &[0x04, 0xD9, 0x0D, 0x80]);
@@ -761,9 +780,12 @@ mod tests {
                 source_count: 5,
             }),
             opinion: Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let (buf, len) = encode_annotation(&ann).unwrap();
         assert_eq!(&buf[..len], &[0x0C, 0x13, 0x10, 0x05, 0xD9, 0x0D, 0x80]);
@@ -782,16 +804,19 @@ mod tests {
             ComplianceStatus::NonCompliant,
             ComplianceStatus::Insufficient,
         ];
-        let precisions = [
-            PrecisionMode::Bits8,
-            PrecisionMode::Bits16,
-        ];
+        let precisions = [PrecisionMode::Bits8, PrecisionMode::Bits16];
 
         let opinions_8bit = QuantizedBinomial {
-            belief: 200, disbelief: 30, uncertainty: 25, base_rate: 128,
+            belief: 200,
+            disbelief: 30,
+            uncertainty: 25,
+            base_rate: 128,
         };
         let opinions_16bit = QuantizedBinomial {
-            belief: 50000, disbelief: 10000, uncertainty: 5535, base_rate: 32768,
+            belief: 50000,
+            disbelief: 10000,
+            uncertainty: 5535,
+            base_rate: 32768,
         };
 
         for &cs in &statuses {
@@ -805,7 +830,7 @@ mod tests {
                         precision_mode: PrecisionMode::Bits8,
                     }),
                     opinion: None,
-                extensions: None,
+                    extensions: None,
                 };
                 let (buf, len) = encode_annotation(&ann).unwrap();
                 let decoded = decode_annotation(&buf[..len]).unwrap();
@@ -826,12 +851,14 @@ mod tests {
                             precision_mode: pm,
                         }),
                         opinion: Some(op),
-                    extensions: None,
+                        extensions: None,
                     };
                     let (buf, len) = encode_annotation(&ann).unwrap();
                     let decoded = decode_annotation(&buf[..len]).unwrap();
-                    assert_eq!(decoded, ann,
-                        "Roundtrip failed: cs={cs:?} df={df} pm={pm:?}");
+                    assert_eq!(
+                        decoded, ann,
+                        "Roundtrip failed: cs={cs:?} df={df} pm={pm:?}"
+                    );
                 }
             }
         }
@@ -847,8 +874,7 @@ mod tests {
     // =================================================================
 
     use crate::temporal::{
-        ExtensionBlock, TemporalBlock, Trigger,
-        DECAY_EXPONENTIAL, DECAY_LINEAR, DECAY_STEP,
+        ExtensionBlock, TemporalBlock, Trigger, DECAY_EXPONENTIAL, DECAY_LINEAR, DECAY_STEP,
         TRIGGER_EXPIRY, TRIGGER_REVIEW_DUE, TRIGGER_WITHDRAWAL,
     };
 
@@ -869,7 +895,10 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
             Some(ExtensionBlock {
                 temporal: Some(TemporalBlock {
@@ -885,7 +914,8 @@ mod tests {
 
         // First core_len bytes must be identical
         assert_eq!(
-            &full_bytes[..core_len], &core_buf[..core_len],
+            &full_bytes[..core_len],
+            &core_buf[..core_len],
             "Core prefix mismatch: full encoder altered the core wire format"
         );
         // Full output must be strictly longer (extensions present)
@@ -911,7 +941,10 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
         );
 
@@ -919,7 +952,8 @@ mod tests {
         let full_bytes = encode_annotation_full(&ann).unwrap();
 
         assert_eq!(
-            full_bytes, &core_buf[..core_len],
+            full_bytes,
+            &core_buf[..core_len],
             "No-extensions full encode must be byte-identical to core encode"
         );
     }
@@ -938,7 +972,10 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
             Some(ExtensionBlock {
                 temporal: Some(TemporalBlock {
@@ -974,13 +1011,22 @@ mod tests {
                 source_count: 5,
             }),
             Some(QuantizedBinomial {
-                belief: 200, disbelief: 30, uncertainty: 25, base_rate: 128,
+                belief: 200,
+                disbelief: 30,
+                uncertainty: 25,
+                base_rate: 128,
             }),
             Some(ExtensionBlock {
                 temporal: None,
                 triggers: Some(vec![
-                    Trigger { trigger_type: TRIGGER_EXPIRY, parameter: 200 },
-                    Trigger { trigger_type: TRIGGER_WITHDRAWAL, parameter: 0 },
+                    Trigger {
+                        trigger_type: TRIGGER_EXPIRY,
+                        parameter: 200,
+                    },
+                    Trigger {
+                        trigger_type: TRIGGER_WITHDRAWAL,
+                        parameter: 0,
+                    },
                 ]),
             }),
         );
@@ -1004,7 +1050,10 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             Some(QuantizedBinomial {
-                belief: 150, disbelief: 50, uncertainty: 55, base_rate: 128,
+                belief: 150,
+                disbelief: 50,
+                uncertainty: 55,
+                base_rate: 128,
             }),
             Some(ExtensionBlock {
                 temporal: Some(TemporalBlock {
@@ -1012,8 +1061,14 @@ mod tests {
                     half_life_encoded: 200,
                 }),
                 triggers: Some(vec![
-                    Trigger { trigger_type: TRIGGER_EXPIRY, parameter: 128 },
-                    Trigger { trigger_type: TRIGGER_REVIEW_DUE, parameter: 64 },
+                    Trigger {
+                        trigger_type: TRIGGER_EXPIRY,
+                        parameter: 128,
+                    },
+                    Trigger {
+                        trigger_type: TRIGGER_REVIEW_DUE,
+                        parameter: 64,
+                    },
                 ]),
             }),
         );
@@ -1039,7 +1094,10 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
         );
 
@@ -1051,8 +1109,10 @@ mod tests {
 
         assert_eq!(decoded.header, ann.header);
         assert_eq!(decoded.opinion, ann.opinion);
-        assert_eq!(decoded.extensions, None,
-            "Decoding core-only bytes must produce extensions: None");
+        assert_eq!(
+            decoded.extensions, None,
+            "Decoding core-only bytes must produce extensions: None"
+        );
     }
 
     // -----------------------------------------------------------------
@@ -1072,7 +1132,10 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
             Some(ExtensionBlock {
                 temporal: Some(TemporalBlock {
@@ -1084,8 +1147,11 @@ mod tests {
         );
 
         let bytes = encode_annotation_full(&ann).unwrap();
-        assert_eq!(bytes.len(), 6,
-            "Tier1 + 8bit opinion + temporal = 4 core + 2 ext = 6 bytes");
+        assert_eq!(
+            bytes.len(),
+            6,
+            "Tier1 + 8bit opinion + temporal = 4 core + 2 ext = 6 bytes"
+        );
     }
 
     #[test]
@@ -1111,8 +1177,11 @@ mod tests {
         );
 
         let bytes = encode_annotation_full(&ann).unwrap();
-        assert_eq!(bytes.len(), 3,
-            "Tier1 header-only + temporal = 1 core + 2 ext = 3 bytes");
+        assert_eq!(
+            bytes.len(),
+            3,
+            "Tier1 header-only + temporal = 1 core + 2 ext = 3 bytes"
+        );
     }
 
     #[test]
@@ -1131,7 +1200,10 @@ mod tests {
                 precision_mode: PrecisionMode::Bits8,
             }),
             Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
             Some(ExtensionBlock {
                 temporal: Some(TemporalBlock {
@@ -1139,15 +1211,24 @@ mod tests {
                     half_life_encoded: 120,
                 }),
                 triggers: Some(vec![
-                    Trigger { trigger_type: TRIGGER_EXPIRY, parameter: 200 },
-                    Trigger { trigger_type: TRIGGER_WITHDRAWAL, parameter: 0 },
+                    Trigger {
+                        trigger_type: TRIGGER_EXPIRY,
+                        parameter: 200,
+                    },
+                    Trigger {
+                        trigger_type: TRIGGER_WITHDRAWAL,
+                        parameter: 0,
+                    },
                 ]),
             }),
         );
 
         let bytes = encode_annotation_full(&ann).unwrap();
-        assert_eq!(bytes.len(), 8,
-            "Tier1 + 8bit opinion + temporal + 2 triggers = 4 + 4 = 8 bytes");
+        assert_eq!(
+            bytes.len(),
+            8,
+            "Tier1 + 8bit opinion + temporal + 2 triggers = 4 + 4 = 8 bytes"
+        );
     }
 
     // -----------------------------------------------------------------
@@ -1165,7 +1246,10 @@ mod tests {
                     precision_mode: PrecisionMode::Bits8,
                 }),
                 Some(QuantizedBinomial {
-                    belief: 200, disbelief: 30, uncertainty: 25, base_rate: 128,
+                    belief: 200,
+                    disbelief: 30,
+                    uncertainty: 25,
+                    base_rate: 128,
                 }),
                 Some(ExtensionBlock {
                     temporal: Some(TemporalBlock {
@@ -1178,8 +1262,7 @@ mod tests {
 
             let bytes = encode_annotation_full(&original).unwrap();
             let decoded = decode_annotation_full(&bytes).unwrap();
-            assert_eq!(decoded, original,
-                "Full roundtrip failed for decay_fn={df}");
+            assert_eq!(decoded, original, "Full roundtrip failed for decay_fn={df}");
         }
     }
 
@@ -1204,25 +1287,35 @@ mod tests {
                 source_count: 3,
             }),
             Some(QuantizedBinomial {
-                belief: 55705, disbelief: 3277, uncertainty: 6553, base_rate: 32768,
+                belief: 55705,
+                disbelief: 3277,
+                uncertainty: 6553,
+                base_rate: 32768,
             }),
             Some(ExtensionBlock {
                 temporal: Some(TemporalBlock {
                     decay_fn: DECAY_EXPONENTIAL,
                     half_life_encoded: 120,
                 }),
-                triggers: Some(vec![
-                    Trigger { trigger_type: TRIGGER_REVIEW_DUE, parameter: 90 },
-                ]),
+                triggers: Some(vec![Trigger {
+                    trigger_type: TRIGGER_REVIEW_DUE,
+                    parameter: 90,
+                }]),
             }),
         );
 
         let (core_buf, core_len) = encode_annotation(&original).unwrap();
-        assert_eq!(core_len, 10, "Tier2 + 16-bit opinion = 4 + 6 = 10 bytes core");
+        assert_eq!(
+            core_len, 10,
+            "Tier2 + 16-bit opinion = 4 + 6 = 10 bytes core"
+        );
 
         let full_bytes = encode_annotation_full(&original).unwrap();
-        assert_eq!(&full_bytes[..core_len], &core_buf[..core_len],
-            "Core prefix must be preserved");
+        assert_eq!(
+            &full_bytes[..core_len],
+            &core_buf[..core_len],
+            "Core prefix must be preserved"
+        );
 
         let decoded = decode_annotation_full(&full_bytes).unwrap();
         assert_eq!(decoded, original);

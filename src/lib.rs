@@ -48,10 +48,10 @@ extern crate alloc;
 // Total wire cost for a Tier 1 + 8-bit opinion: 4 bytes.
 // JSON-LD equivalent: ~148 bytes. Compression ratio: 37×.
 // ==========================================================================
+pub mod annotation;
 pub mod bitpack;
 pub mod header;
 pub mod opinion;
-pub mod annotation;
 pub mod security;
 
 // ==========================================================================

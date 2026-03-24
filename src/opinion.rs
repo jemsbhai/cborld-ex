@@ -70,15 +70,24 @@ fn validate_precision(precision: u8) -> Result<(), OpinionError> {
 
 fn validate_binomial(b: f64, d: f64, u: f64, a: f64) -> Result<(), OpinionError> {
     if b < -1e-9 {
-        return Err(OpinionError::NegativeComponent { name: "belief", value: b });
+        return Err(OpinionError::NegativeComponent {
+            name: "belief",
+            value: b,
+        });
     }
     if d < -1e-9 {
-        return Err(OpinionError::NegativeComponent { name: "disbelief", value: d });
+        return Err(OpinionError::NegativeComponent {
+            name: "disbelief",
+            value: d,
+        });
     }
     if u < -1e-9 {
-        return Err(OpinionError::NegativeComponent { name: "uncertainty", value: u });
+        return Err(OpinionError::NegativeComponent {
+            name: "uncertainty",
+            value: u,
+        });
     }
-    if a < -1e-9 || a > 1.0 + 1e-9 {
+    if !(-1e-9..=1.0 + 1e-9).contains(&a) {
         return Err(OpinionError::InvalidBaseRate(a));
     }
     let sum = b + d + u;
@@ -123,7 +132,11 @@ pub struct QuantizedBinomial {
 /// Clamping rule (Theorem 1c): If b̂ + d̂ > max_val (possible when
 /// u ≈ 0 and both b and d round up), d̂ is decremented by 1.
 pub fn quantize_binomial(
-    b: f64, d: f64, u: f64, a: f64, precision: u8,
+    b: f64,
+    d: f64,
+    u: f64,
+    a: f64,
+    precision: u8,
 ) -> Result<QuantizedBinomial, OpinionError> {
     validate_precision(precision)?;
     validate_binomial(b, d, u, a)?;
@@ -158,7 +171,10 @@ pub fn quantize_binomial(
 /// Theorem 1(b) guarantees:
 ///   Q_n^{-1}(b̂) + Q_n^{-1}(d̂) + Q_n^{-1}(û) = 1.0 exactly
 /// because b̂ + d̂ + û = 2^n - 1 by construction.
-pub fn dequantize_binomial(q: &QuantizedBinomial, precision: u8) -> Result<(f64, f64, f64, f64), OpinionError> {
+pub fn dequantize_binomial(
+    q: &QuantizedBinomial,
+    precision: u8,
+) -> Result<(f64, f64, f64, f64), OpinionError> {
     validate_precision(precision)?;
     let mv = max_val(precision);
     Ok((
@@ -177,7 +193,12 @@ pub fn dequantize_binomial(q: &QuantizedBinomial, precision: u8) -> Result<(f64,
 ///   8-bit:  3 bytes — b̂(u8), d̂(u8), â(u8)
 ///   16-bit: 6 bytes — b̂(u16), d̂(u16), â(u16), big-endian
 ///   32-bit: 12 bytes — b(f32), d(f32), a(f32), big-endian
-pub fn encode_opinion_bytes(b_q: u16, d_q: u16, a_q: u16, precision: u8) -> Result<[u8; 12], OpinionError> {
+pub fn encode_opinion_bytes(
+    b_q: u16,
+    d_q: u16,
+    a_q: u16,
+    precision: u8,
+) -> Result<[u8; 12], OpinionError> {
     validate_precision(precision)?;
     let mut buf = [0u8; 12];
 
@@ -310,7 +331,10 @@ mod tests {
     fn test_quantize_negative_disbelief() {
         assert!(matches!(
             quantize_binomial(0.5, -0.1, 0.6, 0.5, 8),
-            Err(OpinionError::NegativeComponent { name: "disbelief", .. })
+            Err(OpinionError::NegativeComponent {
+                name: "disbelief",
+                ..
+            })
         ));
     }
 
@@ -318,7 +342,10 @@ mod tests {
     fn test_quantize_negative_uncertainty() {
         assert!(matches!(
             quantize_binomial(0.5, 0.5, -0.1, 0.5, 8),
-            Err(OpinionError::NegativeComponent { name: "uncertainty", .. })
+            Err(OpinionError::NegativeComponent {
+                name: "uncertainty",
+                ..
+            })
         ));
     }
 
@@ -396,7 +423,7 @@ mod tests {
     fn test_quantize_8bit_uniform() {
         // b=1/3, d=1/3, u=1/3 → b̂=85, d̂=85, û=85
         // sum = 85+85+85 = 255 ✓
-        let q = quantize_binomial(1.0/3.0, 1.0/3.0, 1.0/3.0, 0.5, 8).unwrap();
+        let q = quantize_binomial(1.0 / 3.0, 1.0 / 3.0, 1.0 / 3.0, 0.5, 8).unwrap();
         assert_eq!(q.belief, 85);
         assert_eq!(q.disbelief, 85);
         assert_eq!(q.uncertainty, 85);
@@ -483,7 +510,10 @@ mod tests {
     #[test]
     fn test_dequantize_8bit_formal_model() {
         let q = QuantizedBinomial {
-            belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+            belief: 217,
+            disbelief: 13,
+            uncertainty: 25,
+            base_rate: 128,
         };
         let (b, d, u, a) = dequantize_binomial(&q, 8).unwrap();
         assert!(approx_eq(b, 217.0 / 255.0));
@@ -497,7 +527,10 @@ mod tests {
         // Theorem 1(b): dequantized components sum to exactly 1.0
         // in real arithmetic, and very close in IEEE 754.
         let q = QuantizedBinomial {
-            belief: 100, disbelief: 50, uncertainty: 105, base_rate: 128,
+            belief: 100,
+            disbelief: 50,
+            uncertainty: 105,
+            base_rate: 128,
         };
         let (b, d, u, _) = dequantize_binomial(&q, 8).unwrap();
         let sum = b + d + u;
@@ -510,7 +543,10 @@ mod tests {
     #[test]
     fn test_dequantize_sum_is_one_16bit() {
         let q = QuantizedBinomial {
-            belief: 30000, disbelief: 20000, uncertainty: 15535, base_rate: 32768,
+            belief: 30000,
+            disbelief: 20000,
+            uncertainty: 15535,
+            base_rate: 32768,
         };
         let (b, d, u, _) = dequantize_binomial(&q, 16).unwrap();
         let sum = b + d + u;
@@ -575,9 +611,8 @@ mod tests {
     #[test]
     fn test_wire_roundtrip_8bit() {
         let original = quantize_binomial(0.85, 0.05, 0.10, 0.50, 8).unwrap();
-        let buf = encode_opinion_bytes(
-            original.belief, original.disbelief, original.base_rate, 8
-        ).unwrap();
+        let buf = encode_opinion_bytes(original.belief, original.disbelief, original.base_rate, 8)
+            .unwrap();
         let decoded = decode_opinion_bytes(&buf[..3], 8).unwrap();
         assert_eq!(original, decoded);
     }
@@ -608,9 +643,8 @@ mod tests {
     #[test]
     fn test_wire_roundtrip_16bit() {
         let original = quantize_binomial(0.7, 0.2, 0.1, 0.5, 16).unwrap();
-        let buf = encode_opinion_bytes(
-            original.belief, original.disbelief, original.base_rate, 16
-        ).unwrap();
+        let buf = encode_opinion_bytes(original.belief, original.disbelief, original.base_rate, 16)
+            .unwrap();
         let decoded = decode_opinion_bytes(&buf[..6], 16).unwrap();
         assert_eq!(original, decoded);
     }
@@ -665,7 +699,10 @@ mod tests {
     fn test_decode_insufficient_data_8bit() {
         assert!(matches!(
             decode_opinion_bytes(&[0x00, 0x00], 8),
-            Err(OpinionError::InsufficientData { expected: 3, got: 2 })
+            Err(OpinionError::InsufficientData {
+                expected: 3,
+                got: 2
+            })
         ));
     }
 
@@ -673,7 +710,10 @@ mod tests {
     fn test_decode_insufficient_data_16bit() {
         assert!(matches!(
             decode_opinion_bytes(&[0x00; 4], 16),
-            Err(OpinionError::InsufficientData { expected: 6, got: 4 })
+            Err(OpinionError::InsufficientData {
+                expected: 6,
+                got: 4
+            })
         ));
     }
 
@@ -719,7 +759,9 @@ mod tests {
                     max_val,
                     "Theorem 1 violated at b̂={b_q}, d̂={d_q}: \
                      got {}+{}+{}={}",
-                    q.belief, q.disbelief, q.uncertainty,
+                    q.belief,
+                    q.disbelief,
+                    q.uncertainty,
                     q.belief + q.disbelief + q.uncertainty,
                 );
 
@@ -727,7 +769,10 @@ mod tests {
                 // (since we started from exact quantized values)
                 assert_eq!(q.belief, b_q, "Belief mismatch at b̂={b_q}, d̂={d_q}");
                 assert_eq!(q.disbelief, d_q, "Disbelief mismatch at b̂={b_q}, d̂={d_q}");
-                assert_eq!(q.uncertainty, u_q, "Uncertainty mismatch at b̂={b_q}, d̂={d_q}");
+                assert_eq!(
+                    q.uncertainty, u_q,
+                    "Uncertainty mismatch at b̂={b_q}, d̂={d_q}"
+                );
 
                 pair_count += 1;
             }
@@ -812,6 +857,9 @@ mod tests {
         // Python: quantize_binomial(0.85, 0.05, 0.10, 0.50, precision=8)
         // → (217, 13, 25, 128)
         let q = quantize_binomial(0.85, 0.05, 0.10, 0.50, 8).unwrap();
-        assert_eq!((q.belief, q.disbelief, q.uncertainty, q.base_rate), (217, 13, 25, 128));
+        assert_eq!(
+            (q.belief, q.disbelief, q.uncertainty, q.base_rate),
+            (217, 13, 25, 128)
+        );
     }
 }

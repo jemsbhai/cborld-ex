@@ -75,11 +75,11 @@ pub struct Tier2Header {
     pub has_opinion: bool,
     pub precision_mode: PrecisionMode,
     pub operator_id: OperatorId,
-    pub reasoning_context: u8,   // 4 bits (0–15)
-    pub context_version: u8,     // 4 bits (0–15)
+    pub reasoning_context: u8, // 4 bits (0–15)
+    pub context_version: u8,   // 4 bits (0–15)
     pub has_multinomial: bool,
-    pub sub_tier_depth: u8,      // 3 bits (0–7)
-    pub source_count: u8,        // 8 bits (0–255)
+    pub sub_tier_depth: u8, // 3 bits (0–7)
+    pub source_count: u8,   // 8 bits (0–255)
 }
 
 /// Tier 3 — 4-byte fixed + variable extensions.
@@ -90,12 +90,12 @@ pub struct Tier3Header {
     pub has_opinion: bool,
     pub precision_mode: PrecisionMode,
     pub operator_id: OperatorId,
-    pub reasoning_context: u8,      // 4 bits (0–15)
+    pub reasoning_context: u8, // 4 bits (0–15)
     pub has_extended_context: bool,
     pub has_provenance_chain: bool,
     pub has_multinomial: bool,
     pub has_trust_info: bool,
-    pub sub_tier_depth: u8,         // 4 bits (0–15)
+    pub sub_tier_depth: u8, // 4 bits (0–15)
 }
 
 /// Sum type for all header tiers — returned by decode_header.
@@ -110,7 +110,10 @@ pub enum Header {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HeaderError {
     /// Input data too short for the detected tier.
-    InsufficientData { expected: usize, got: usize },
+    InsufficientData {
+        expected: usize,
+        got: usize,
+    },
     /// Reserved origin_tier (0b11) encountered.
     ReservedTier,
     /// Invalid enum discriminant.
@@ -205,8 +208,7 @@ pub fn encode_header(header: &Header) -> [u8; 4] {
                 h.precision_mode,
             );
             // Byte 1: [operator_id:4][reasoning_context:4]
-            out[1] = (h.operator_id as u8) << 4
-                | (h.reasoning_context & 0x0F);
+            out[1] = (h.operator_id as u8) << 4 | (h.reasoning_context & 0x0F);
             // Byte 2: [context_version:4][has_multinomial:1][sub_tier_depth:3]
             out[2] = (h.context_version & 0x0F) << 4
                 | (h.has_multinomial as u8) << 3
@@ -223,8 +225,7 @@ pub fn encode_header(header: &Header) -> [u8; 4] {
                 h.precision_mode,
             );
             // Byte 1: [operator_id:4][reasoning_context:4]
-            out[1] = (h.operator_id as u8) << 4
-                | (h.reasoning_context & 0x0F);
+            out[1] = (h.operator_id as u8) << 4 | (h.reasoning_context & 0x0F);
             // Byte 2: [hec:1][hpc:1][hm:1][hti:1][sub_tier_depth:4]
             out[2] = (h.has_extended_context as u8) << 7
                 | (h.has_provenance_chain as u8) << 6
@@ -253,7 +254,10 @@ pub fn header_size(header: &Header) -> usize {
 /// layout and how many bytes to consume.
 pub fn decode_header(data: &[u8]) -> Result<Header, HeaderError> {
     if data.is_empty() {
-        return Err(HeaderError::InsufficientData { expected: 1, got: 0 });
+        return Err(HeaderError::InsufficientData {
+            expected: 1,
+            got: 0,
+        });
     }
 
     let byte0 = data[0];
@@ -337,9 +341,18 @@ mod tests {
 
     #[test]
     fn test_compliance_status_from_bits_valid() {
-        assert_eq!(ComplianceStatus::from_bits(0b00).unwrap(), ComplianceStatus::Compliant);
-        assert_eq!(ComplianceStatus::from_bits(0b01).unwrap(), ComplianceStatus::NonCompliant);
-        assert_eq!(ComplianceStatus::from_bits(0b10).unwrap(), ComplianceStatus::Insufficient);
+        assert_eq!(
+            ComplianceStatus::from_bits(0b00).unwrap(),
+            ComplianceStatus::Compliant
+        );
+        assert_eq!(
+            ComplianceStatus::from_bits(0b01).unwrap(),
+            ComplianceStatus::NonCompliant
+        );
+        assert_eq!(
+            ComplianceStatus::from_bits(0b10).unwrap(),
+            ComplianceStatus::Insufficient
+        );
     }
 
     #[test]
@@ -356,10 +369,22 @@ mod tests {
 
     #[test]
     fn test_precision_mode_from_bits_valid() {
-        assert_eq!(PrecisionMode::from_bits(0b00).unwrap(), PrecisionMode::Bits8);
-        assert_eq!(PrecisionMode::from_bits(0b01).unwrap(), PrecisionMode::Bits16);
-        assert_eq!(PrecisionMode::from_bits(0b10).unwrap(), PrecisionMode::Bits32);
-        assert_eq!(PrecisionMode::from_bits(0b11).unwrap(), PrecisionMode::Reserved);
+        assert_eq!(
+            PrecisionMode::from_bits(0b00).unwrap(),
+            PrecisionMode::Bits8
+        );
+        assert_eq!(
+            PrecisionMode::from_bits(0b01).unwrap(),
+            PrecisionMode::Bits16
+        );
+        assert_eq!(
+            PrecisionMode::from_bits(0b10).unwrap(),
+            PrecisionMode::Bits32
+        );
+        assert_eq!(
+            PrecisionMode::from_bits(0b11).unwrap(),
+            PrecisionMode::Reserved
+        );
     }
 
     // =================================================================
@@ -369,8 +394,14 @@ mod tests {
     #[test]
     fn test_operator_id_from_bits_valid() {
         assert_eq!(OperatorId::from_bits(0).unwrap(), OperatorId::None);
-        assert_eq!(OperatorId::from_bits(1).unwrap(), OperatorId::CumulativeFusion);
-        assert_eq!(OperatorId::from_bits(12).unwrap(), OperatorId::RegulatoryChange);
+        assert_eq!(
+            OperatorId::from_bits(1).unwrap(),
+            OperatorId::CumulativeFusion
+        );
+        assert_eq!(
+            OperatorId::from_bits(12).unwrap(),
+            OperatorId::RegulatoryChange
+        );
     }
 
     #[test]
@@ -490,8 +521,10 @@ mod tests {
                         });
                         let encoded = encode_header(&original);
                         let decoded = decode_header(&encoded[..1]).unwrap();
-                        assert_eq!(decoded, original,
-                            "Roundtrip failed for cs={cs:?} df={df} ho={ho} pm={pm:?}");
+                        assert_eq!(
+                            decoded, original,
+                            "Roundtrip failed for cs={cs:?} df={df} ho={ho} pm={pm:?}"
+                        );
                     }
                 }
             }
@@ -538,10 +571,10 @@ mod tests {
             has_opinion: true,
             precision_mode: PrecisionMode::Bits32,
             operator_id: OperatorId::RegulatoryChange, // 12 = 0b1100
-            reasoning_context: 15,                      // 0b1111
-            context_version: 15,                        // 0b1111
+            reasoning_context: 15,                     // 0b1111
+            context_version: 15,                       // 0b1111
             has_multinomial: true,
-            sub_tier_depth: 7,                          // 0b111
+            sub_tier_depth: 7, // 0b111
             source_count: 255,
         });
         let encoded = encode_header(&header);
@@ -660,7 +693,10 @@ mod tests {
     fn test_decode_empty_data() {
         assert_eq!(
             decode_header(&[]),
-            Err(HeaderError::InsufficientData { expected: 1, got: 0 })
+            Err(HeaderError::InsufficientData {
+                expected: 1,
+                got: 0
+            })
         );
     }
 
@@ -670,7 +706,10 @@ mod tests {
         // [00][0][01][0][00] = 0b0000_1000 = 0x08
         assert_eq!(
             decode_header(&[0x08, 0x00]),
-            Err(HeaderError::InsufficientData { expected: 4, got: 2 })
+            Err(HeaderError::InsufficientData {
+                expected: 4,
+                got: 2
+            })
         );
     }
 
@@ -680,7 +719,10 @@ mod tests {
         // [00][0][10][0][00] = 0b0001_0000 = 0x10
         assert_eq!(
             decode_header(&[0x10, 0x00, 0x00]),
-            Err(HeaderError::InsufficientData { expected: 4, got: 3 })
+            Err(HeaderError::InsufficientData {
+                expected: 4,
+                got: 3
+            })
         );
     }
 
@@ -688,10 +730,7 @@ mod tests {
     fn test_decode_reserved_tier() {
         // origin_tier=RESERVED(11)
         // [00][0][11][0][00] = 0b0001_1000 = 0x18
-        assert_eq!(
-            decode_header(&[0x18]),
-            Err(HeaderError::ReservedTier)
-        );
+        assert_eq!(decode_header(&[0x18]), Err(HeaderError::ReservedTier));
     }
 
     // =================================================================

@@ -15,8 +15,7 @@ use std::collections::BTreeMap;
 use ciborium::Value;
 
 use crate::annotation::{
-    Annotation, AnnotationError, CBOR_TAG_CBORLD_EX,
-    encode_annotation, decode_annotation,
+    decode_annotation, encode_annotation, Annotation, AnnotationError, CBOR_TAG_CBORLD_EX,
 };
 
 /// Wire-level integer key for the annotation block in the CBOR map.
@@ -35,7 +34,10 @@ pub enum CodecError {
     /// No annotation found at the expected term ID.
     MissingAnnotation,
     /// Annotation tag number mismatch.
-    WrongTag { expected: u64, got: u64 },
+    WrongTag {
+        expected: u64,
+        got: u64,
+    },
     /// Duplicate integer codes in registry.
     DuplicateCodes,
     /// Code collision between key_map and value_map.
@@ -96,8 +98,10 @@ impl ContextRegistry {
             return Err(CodecError::ReservedCodeUsed);
         }
 
-        let int_to_key: BTreeMap<i64, String> = key_map.iter().map(|(k, v)| (*v, k.clone())).collect();
-        let int_to_val: BTreeMap<i64, String> = value_map.iter().map(|(k, v)| (*v, k.clone())).collect();
+        let int_to_key: BTreeMap<i64, String> =
+            key_map.iter().map(|(k, v)| (*v, k.clone())).collect();
+        let int_to_val: BTreeMap<i64, String> =
+            value_map.iter().map(|(k, v)| (*v, k.clone())).collect();
 
         Ok(Self {
             key_to_int: key_map,
@@ -109,58 +113,62 @@ impl ContextRegistry {
 
     /// Compress a CBOR Value map: replace known string keys/values with integers.
     pub fn compress(&self, doc: &[(Value, Value)]) -> Vec<(Value, Value)> {
-        doc.iter().map(|(k, v)| {
-            let ck = if let Value::Text(s) = k {
-                if let Some(&code) = self.key_to_int.get(s.as_str()) {
-                    Value::Integer(code.into())
+        doc.iter()
+            .map(|(k, v)| {
+                let ck = if let Value::Text(s) = k {
+                    if let Some(&code) = self.key_to_int.get(s.as_str()) {
+                        Value::Integer(code.into())
+                    } else {
+                        k.clone()
+                    }
                 } else {
                     k.clone()
-                }
-            } else {
-                k.clone()
-            };
+                };
 
-            let cv = if let Value::Text(s) = v {
-                if let Some(&code) = self.val_to_int.get(s.as_str()) {
-                    Value::Integer(code.into())
+                let cv = if let Value::Text(s) = v {
+                    if let Some(&code) = self.val_to_int.get(s.as_str()) {
+                        Value::Integer(code.into())
+                    } else {
+                        v.clone()
+                    }
                 } else {
                     v.clone()
-                }
-            } else {
-                v.clone()
-            };
+                };
 
-            (ck, cv)
-        }).collect()
+                (ck, cv)
+            })
+            .collect()
     }
 
     /// Decompress a CBOR Value map: replace integer keys/values with strings.
     pub fn decompress(&self, doc: &[(Value, Value)]) -> Vec<(Value, Value)> {
-        doc.iter().map(|(k, v)| {
-            let dk = if let Value::Integer(i) = k {
-                let code: i128 = (*i).into();
-                if let Some(s) = self.int_to_key.get(&(code as i64)) {
-                    Value::Text(s.clone())
+        doc.iter()
+            .map(|(k, v)| {
+                let dk = if let Value::Integer(i) = k {
+                    let code: i128 = (*i).into();
+                    if let Some(s) = self.int_to_key.get(&(code as i64)) {
+                        Value::Text(s.clone())
+                    } else {
+                        k.clone()
+                    }
                 } else {
                     k.clone()
-                }
-            } else {
-                k.clone()
-            };
+                };
 
-            let dv = if let Value::Integer(i) = v {
-                let code: i128 = (*i).into();
-                if let Some(s) = self.int_to_val.get(&(code as i64)) {
-                    Value::Text(s.clone())
+                let dv = if let Value::Integer(i) = v {
+                    let code: i128 = (*i).into();
+                    if let Some(s) = self.int_to_val.get(&(code as i64)) {
+                        Value::Text(s.clone())
+                    } else {
+                        v.clone()
+                    }
                 } else {
                     v.clone()
-                }
-            } else {
-                v.clone()
-            };
+                };
 
-            (dk, dv)
-        }).collect()
+                (dk, dv)
+            })
+            .collect()
     }
 }
 
@@ -200,8 +208,7 @@ pub fn encode(
     let cbor_map = Value::Map(entries);
 
     let mut buf = Vec::new();
-    ciborium::into_writer(&cbor_map, &mut buf)
-        .map_err(|e| CodecError::Cbor(format!("{e}")))?;
+    ciborium::into_writer(&cbor_map, &mut buf).map_err(|e| CodecError::Cbor(format!("{e}")))?;
 
     Ok(buf)
 }
@@ -215,8 +222,8 @@ pub fn decode(
     data: &[u8],
     registry: Option<&ContextRegistry>,
 ) -> Result<(Vec<(Value, Value)>, Annotation), CodecError> {
-    let cbor_val: Value = ciborium::from_reader(data)
-        .map_err(|e| CodecError::Cbor(format!("{e}")))?;
+    let cbor_val: Value =
+        ciborium::from_reader(data).map_err(|e| CodecError::Cbor(format!("{e}")))?;
 
     let entries = match cbor_val {
         Value::Map(entries) => entries,
@@ -279,7 +286,10 @@ mod tests {
 
     fn sample_doc() -> Vec<(Value, Value)> {
         vec![
-            (Value::Text("@type".into()), Value::Text("TemperatureReading".into())),
+            (
+                Value::Text("@type".into()),
+                Value::Text("TemperatureReading".into()),
+            ),
             (Value::Text("value".into()), Value::Float(22.5)),
             (Value::Text("unit".into()), Value::Text("Celsius".into())),
         ]
@@ -299,7 +309,7 @@ mod tests {
                 uncertainty: 25,
                 base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         }
     }
 
@@ -394,9 +404,10 @@ mod tests {
     #[test]
     fn test_compress_unknown_keys_pass_through() {
         let reg = sample_registry();
-        let doc = vec![
-            (Value::Text("unknownKey".into()), Value::Text("unknownVal".into())),
-        ];
+        let doc = vec![(
+            Value::Text("unknownKey".into()),
+            Value::Text("unknownVal".into()),
+        )];
         let compressed = reg.compress(&doc);
         // Unknown keys/values pass through unchanged
         assert_eq!(compressed[0].0, Value::Text("unknownKey".into()));
@@ -461,7 +472,8 @@ mod tests {
         assert!(
             compressed.len() < uncompressed.len(),
             "Compressed {} should be < uncompressed {}",
-            compressed.len(), uncompressed.len()
+            compressed.len(),
+            uncompressed.len()
         );
     }
 
@@ -508,12 +520,13 @@ mod tests {
     #[test]
     fn test_decode_missing_annotation() {
         // Encode a CBOR map with no annotation key
-        let map = Value::Map(vec![
-            (Value::Text("key".into()), Value::Text("val".into())),
-        ]);
+        let map = Value::Map(vec![(Value::Text("key".into()), Value::Text("val".into()))]);
         let mut bytes = Vec::new();
         ciborium::into_writer(&map, &mut bytes).unwrap();
-        assert!(matches!(decode(&bytes, None), Err(CodecError::MissingAnnotation)));
+        assert!(matches!(
+            decode(&bytes, None),
+            Err(CodecError::MissingAnnotation)
+        ));
     }
 
     // =================================================================
@@ -537,9 +550,12 @@ mod tests {
                 source_count: 5,
             }),
             opinion: Some(QuantizedBinomial {
-                belief: 217, disbelief: 13, uncertainty: 25, base_rate: 128,
+                belief: 217,
+                disbelief: 13,
+                uncertainty: 25,
+                base_rate: 128,
             }),
-        extensions: None,
+            extensions: None,
         };
         let bytes = encode(&doc, &ann, None).unwrap();
         let (decoded_doc, decoded_ann) = decode(&bytes, None).unwrap();
@@ -565,7 +581,7 @@ mod tests {
                 sub_tier_depth: 0,
             }),
             opinion: None,
-        extensions: None,
+            extensions: None,
         };
         let bytes = encode(&doc, &ann, None).unwrap();
         let (decoded_doc, decoded_ann) = decode(&bytes, None).unwrap();
@@ -584,9 +600,12 @@ mod tests {
                 precision_mode: PrecisionMode::Bits16,
             }),
             opinion: Some(QuantizedBinomial {
-                belief: 55705, disbelief: 3277, uncertainty: 6553, base_rate: 32768,
+                belief: 55705,
+                disbelief: 3277,
+                uncertainty: 6553,
+                base_rate: 32768,
             }),
-        extensions: None,
+            extensions: None,
         };
         let bytes = encode(&doc, &ann, None).unwrap();
         let (_, decoded_ann) = decode(&bytes, None).unwrap();
