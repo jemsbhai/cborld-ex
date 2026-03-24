@@ -20,6 +20,7 @@
 //!
 //! - `std` (default) — Full standard library support
 //! - `alloc` — Heap allocation without full std (for `no_std` + allocator environments)
+//! - `digest` — SHA-256 chain digests (independent of `alloc`)
 //! - Default-features = false — Bare `no_std`, no heap allocation
 //!
 //! ## References
@@ -41,6 +42,8 @@ extern crate alloc;
 //   header     → 1-byte (Tier 1) to 4-byte (Tier 2/3) annotation headers
 //   opinion    → Quantized Subjective Logic opinions (8/16/32-bit precision)
 //   annotation → Header + opinion assembly, encode/decode to byte arrays
+//   security   → Byzantine metadata, provenance entries, GF(2⁸) syndromes
+//                 (chain digest requires `digest` feature; batch ops require `alloc`)
 //
 // Total wire cost for a Tier 1 + 8-bit opinion: 4 bytes.
 // JSON-LD equivalent: ~148 bytes. Compression ratio: 37×.
@@ -49,6 +52,7 @@ pub mod bitpack;
 pub mod header;
 pub mod opinion;
 pub mod annotation;
+pub mod security;
 
 // ==========================================================================
 // `alloc` modules — require heap allocation (Vec, String).
@@ -74,5 +78,4 @@ pub mod temporal;
 pub mod codec;
 
 // Planned modules (not yet implemented):
-// pub mod security;   // Annotation digests, Byzantine fusion metadata
 // pub mod transport;  // MQTT/CoAP serialization

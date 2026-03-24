@@ -13,26 +13,35 @@ rust-version = "1.70"
 
 [features]
 default = ["std"]
-std = ["alloc", "dep:ciborium"]
+std = ["alloc", "digest", "dep:ciborium"]
 alloc = []
+digest = ["dep:sha2"]
 # Feature hierarchy:
-#   std (default) → alloc + ciborium
+#   std (default) → alloc + digest + ciborium
 #                   Enables: codec module (full CBOR encode/decode pipeline)
+#   digest        → sha2 crate (truncated SHA-256 for chain integrity)
+#                   Enables: chain digest computation and verification in security module
+#                   Independent of alloc — a constrained Tier 2 device can verify
+#                   chains with static arrays and no heap.
 #   alloc         → heap allocation (Vec, String)
 #                   Enables: temporal module (ExtensionBlock with Vec<Trigger>)
-#   bare no_std   → no heap, no allocator
-#                   Enables: bitpack, header, opinion, annotation
+#                   Enables: batch chain encode/decode (Vec<u8>, Vec<ProvenanceEntry>)
+#   bare no_std   → no heap, no allocator, no crypto
+#                   Enables: bitpack, header, opinion, annotation, security types +
+#                   encode/decode + GF(2^8) syndromes
 #                   This is the core wire format for constrained Tier 1 devices.
 #
 # Usage:
 #   [dependencies]
 #   cborld-ex = "0.1"                                    # full std (default)
 #   cborld-ex = { version = "0.1", features = ["alloc"], default-features = false }  # no_std + alloc
+#   cborld-ex = { version = "0.1", features = ["digest"], default-features = false } # no_std + SHA-256
 #   cborld-ex = { version = "0.1", default-features = false }                        # bare no_std
 
 [dependencies]
 ciborium = { version = "0.2", optional = true }
 libm = "0.2"  # Pure-Rust float math for no_std (log2, powf, round). Tiny, zero deps.
+sha2 = { version = "0.10", default-features = false, optional = true }  # SHA-256 for chain digests. Pure Rust, no_std compatible.
 
 [dev-dependencies]
 
