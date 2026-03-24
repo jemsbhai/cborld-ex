@@ -38,7 +38,7 @@ pub mod bitpack;
 // pub mod error;
 pub mod header;
 pub mod opinion;
-// pub mod annotation;
+pub mod annotation;
 // pub mod codec;
 // pub mod temporal;
 // pub mod security;
