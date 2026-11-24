@@ -23,7 +23,7 @@
 //! ## CoAP (§10.3)
 //!
 //! - Payload: raw CBOR-LD-ex codec output (identical to MQTT)
-//! - Content-Format: 60000 (experimental range, matches CBOR tag)
+//! - Content-Format: 60000 (unregistered; development use only)
 //! - 802.15.4 frame fit: max payload 111 bytes (127 MTU − 16 CoAP overhead)
 
 use crate::annotation::Annotation;
@@ -37,8 +37,12 @@ use ciborium::Value;
 // Constants
 // =====================================================================
 
-/// CoAP Content-Format ID for CBOR-LD-ex (experimental range).
-/// Matches the CBOR tag number (60000) for self-documentation.
+/// CoAP Content-Format ID for CBOR-LD-ex: 60000, UNREGISTERED, in
+/// use for development only. Under RFC 9876 the range 33000-64997 is
+/// Expert Review; 60000 is not an experimental-range ID (that range
+/// is 65000-65535) and it has no relation to the CBOR tag (60100).
+/// A Content-Format request will follow registration of the media
+/// type application/vnd.cbor-ld-ex.
 pub const COAP_CONTENT_FORMAT_CBOR_LD_EX: u64 = 60000;
 
 /// 802.15.4 MAC layer MTU in bytes.

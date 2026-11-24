@@ -72,7 +72,7 @@ pub mod temporal;
 // Available with `features = ["std"]` (default). These pull in `ciborium`
 // for full CBOR serialization and use `std::collections::BTreeMap`.
 //
-//   codec → ContextRegistry, full CBOR encode/decode pipeline with Tag(60000)
+//   codec → ContextRegistry, full CBOR encode/decode pipeline with Tag(60100)
 // ==========================================================================
 #[cfg(feature = "std")]
 pub mod codec;

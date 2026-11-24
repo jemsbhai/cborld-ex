@@ -7,7 +7,7 @@
 //! Wire format (§5.3):
 //!   CBOR map = {
 //!     ...data fields (context-compressed to integer keys/values)...,
-//!     ANNOTATION_TERM_ID: Tag(60000, annotation_bytes)
+//!     ANNOTATION_TERM_ID: Tag(60100, annotation_bytes)
 //!   }
 
 use std::collections::BTreeMap;
@@ -19,7 +19,9 @@ use crate::annotation::{
 };
 
 /// Wire-level integer key for the annotation block in the CBOR map.
-/// Matches the CBOR tag number for self-documentation: 60000.
+/// Coincides numerically with the CBOR tag number (60100) as an
+/// implementation convenience. Per §5.3 the term ID and the tag are
+/// distinct identifiers; neither is derived from the other.
 /// CBOR encoding cost: 3 bytes. Compare to "@annotation" string: 12 bytes.
 pub const ANNOTATION_TERM_ID: u64 = CBOR_TAG_CBORLD_EX;
 
@@ -179,7 +181,7 @@ impl ContextRegistry {
 /// Encode a document + annotation to CBOR-LD-ex bytes.
 ///
 /// The document is a list of (key, value) pairs (CBOR map entries).
-/// The annotation is encoded, tagged with Tag(60000), and inserted
+/// The annotation is encoded, tagged with Tag(60100), and inserted
 /// at key ANNOTATION_TERM_ID.
 pub fn encode(
     doc: &[(Value, Value)],
@@ -245,7 +247,7 @@ pub fn decode(
 
     let ann_tagged = ann_value.ok_or(CodecError::MissingAnnotation)?;
 
-    // Extract annotation bytes from Tag(60000, bytes)
+    // Extract annotation bytes from Tag(60100, bytes)
     let ann_bytes = match ann_tagged {
         Value::Tag(tag_num, inner) => {
             if tag_num != CBOR_TAG_CBORLD_EX {
@@ -478,7 +480,7 @@ mod tests {
     }
 
     // =================================================================
-    // Annotation tag is Tag(60000)
+    // Annotation tag is Tag(60100)
     // =================================================================
 
     #[test]

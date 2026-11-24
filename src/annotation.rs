@@ -1,7 +1,7 @@
 //! Annotation assembly and CBOR tag wrapping for CBOR-LD-ex.
 //!
 //! Combines headers (§5) and opinion payloads (§4) into complete
-//! annotation blocks, and wraps them in CBOR Tag(60000) per §5.3.
+//! annotation blocks, and wraps them in CBOR Tag(60100) per §5.3.
 //!
 //! Wire structure:
 //!
@@ -29,7 +29,7 @@ use crate::temporal::{decode_extensions, encode_extensions, ExtensionBlock, Temp
 use alloc::vec::Vec;
 
 /// CBOR tag number for CBOR-LD-ex annotations (§5.3).
-pub const CBOR_TAG_CBORLD_EX: u64 = 60000;
+pub const CBOR_TAG_CBORLD_EX: u64 = 60100;
 
 /// Error type for annotation operations.
 #[derive(Debug, Clone, PartialEq)]
