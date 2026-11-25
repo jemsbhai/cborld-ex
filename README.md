@@ -11,7 +11,7 @@ A Rust implementation of [CBOR-LD-ex](https://github.com/jemsbhai/cbor-ld-ex), p
 - **Algebraic closure** — All operations preserve the SL invariant b̂+d̂+û = 2ⁿ−1 exactly
 - **93% bit efficiency** — Shannon-optimal encoding, 37× smaller than JSON-LD
 - **`no_std` support** — Runs on bare-metal, WASM, and ESP32 targets
-- **Byte-for-byte interop** — Cross-validated against the Python reference implementation
+- **Byte-for-byte interop target** — Designed for byte-level compatibility with the Python reference implementation; cross-validation against the current Python release is being re-run
 
 ## Design Axioms
 
