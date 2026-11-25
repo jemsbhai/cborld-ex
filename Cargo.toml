@@ -33,10 +33,10 @@ digest = ["dep:sha2"]
 #
 # Usage:
 #   [dependencies]
-#   cborld-ex = "0.1"                                    # full std (default)
-#   cborld-ex = { version = "0.1", features = ["alloc"], default-features = false }  # no_std + alloc
-#   cborld-ex = { version = "0.1", features = ["digest"], default-features = false } # no_std + SHA-256
-#   cborld-ex = { version = "0.1", default-features = false }                        # bare no_std
+#   cborld-ex = "0.2"                                    # full std (default)
+#   cborld-ex = { version = "0.2", features = ["alloc"], default-features = false }  # no_std + alloc
+#   cborld-ex = { version = "0.2", features = ["digest"], default-features = false } # no_std + SHA-256
+#   cborld-ex = { version = "0.2", default-features = false }                        # bare no_std
 
 [dependencies]
 ciborium = { version = "0.2", optional = true }
